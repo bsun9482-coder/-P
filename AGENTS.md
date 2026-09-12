@@ -94,6 +94,12 @@ python -m app.crawler.run
 - 一个需求一个提交，commit message 用 `type(scope): 中文描述`。
 - 禁止把同一改动重复提交为多个 SHA；同一 PR 保持线性历史。
 - 推送前先 `git fetch` 对比，历史分叉用 rebase 而不是 merge。
+- **分支名使用平铺连字符名**（如 `refactor-layered-structure`），不使用含 `/` 的层级名。
+  部分开发环境下层级分支名的 ref 会**静默写入失败**：`git commit` 报告成功，但
+  `.git/refs/heads/<a>/<b>` 未创建、HEAD 悬空（症状：`git status` 显示 `No commits yet`
+  且所有文件变 `A`、`git log` 为空）。此时**提交对象与文件内容均未丢失**，恢复方式：
+  `git update-ref refs/heads/<平铺名> <sha>` + `git symbolic-ref HEAD refs/heads/<平铺名>`。
+  远端分支名可与本地不同，推送时用 `git push origin <本地平铺名>:<远端名>` 映射。
 
 ### 测试纪律
 

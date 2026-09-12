@@ -15,8 +15,9 @@ from app.agent.coach import InterviewSession
 from app.core import config, db
 from app.core.ratelimit import reset_rate_limits
 from app.main import app, health
-from app.services.tts import TtsState, _cosyvoice_synthesize
-from app.services.tts import synthesize as _synthesize
+from app.services.tts import TtsState, TtsUnit, _cosyvoice_synthesize
+from app.services.tts import push as _push
+from app.services.tts import synth as _synth
 from app.stores import auth
 from app.voice_ws import maybe_switch_to_mock
 from fastapi.testclient import TestClient
@@ -33,14 +34,20 @@ def _test_token() -> str:
     return auth.issue_token(user["id"])
 
 
-async def _fake_synth(ws, state, sentence):
-    sid = state.sid + 1
-    state.sid = sid
-    await ws.send_text(
-        json.dumps({"type": "audio_start", "sid": sid, "text": sentence}, ensure_ascii=False)
-    )
-    await ws.send_text(json.dumps({"type": "audio_end", "sid": sid}))
-    return True
+async def _synthesize(ws, state, sentence):
+    """测试便捷封装：合成 + 按序推送（等价于拆分前的单步 synthesize）。
+
+    生产路径把两步分开，是为了让合成可并发、推送按序（bug #12）；
+    单连接的单元测试无并发需求，直接串联即可。
+    """
+    unit = await _synth(state, sentence)
+    await _push(ws, state, unit)
+    return unit.ok
+
+
+async def _fake_synth(state, sentence):
+    """假合成：只产出占位音频，推送交给真实 push（保证 sid 逻辑被覆盖）。"""
+    return TtsUnit(text=sentence, blocks=[b"FAKE-AUDIO"], ok=True)
 
 
 def _recv_until_done(ws):
@@ -133,7 +140,7 @@ class VoiceServerTests(unittest.TestCase):
     def test_websocket_streams_reply(self, mock_chat_stream, mock_fts):
         with (
             TestClient(app) as client,
-            mock.patch("app.services.tts.synthesize", side_effect=_fake_synth),
+            mock.patch("app.services.tts.synth", side_effect=_fake_synth),
             client.websocket_connect(self._ws_url(client)) as ws,
         ):
             # 接通后先收到开场白（像打电话一样），消化完再提问
@@ -151,20 +158,13 @@ class VoiceServerTests(unittest.TestCase):
     def test_tts_degrade_after_first_failure(self, mock_chat_stream, mock_fts):
         """第一段在线合成失败后，后续段落直接降级为本地语音（tts_error），不再反复尝试。"""
 
-        async def fail_once(ws, state, sentence):
-            sid = state.sid + 1
-            state.sid = sid
-            await ws.send_text(
-                json.dumps(
-                    {"type": "audio_start", "sid": sid, "text": sentence}, ensure_ascii=False
-                )
-            )
-            await ws.send_text(json.dumps({"type": "tts_error", "sid": sid}))
-            return False
+        async def fail_once(state, sentence):
+            """假合成：总是失败（无音频），推送时改走降级 tts_error。"""
+            return TtsUnit(text=sentence)
 
         with (
             TestClient(app) as client,
-            mock.patch("app.services.tts.synthesize", side_effect=fail_once),
+            mock.patch("app.services.tts.synth", side_effect=fail_once),
             mock.patch("app.services.tts.TTS_MAX_CONCURRENCY", 1),  # 串行：保证降级判定确定
             client.websocket_connect(self._ws_url(client)) as ws,
         ):
@@ -271,12 +271,12 @@ class VoiceServerTests(unittest.TestCase):
         """多句合并合成：短回复只发起 1 次在线合成（减少连接数、保留句间语气）。"""
         calls: list[str] = []
 
-        async def fake_synth(ws, state, sentence):
+        async def fake_synth(state, sentence):
             calls.append(sentence)
-            return True
+            return TtsUnit(text=sentence, blocks=[b"AUDIO"], ok=True)
 
         with (
-            mock.patch("app.services.tts.synthesize", side_effect=fake_synth),
+            mock.patch("app.services.tts.synth", side_effect=fake_synth),
             TestClient(app) as client,
             client.websocket_connect(self._ws_url(client)) as ws,
         ):
@@ -298,12 +298,12 @@ class VoiceServerTests(unittest.TestCase):
         """长回复按阈值分批合成（阈值调小模拟长文本），句子不丢失。"""
         calls: list[str] = []
 
-        async def fake_synth(ws, state, sentence):
+        async def fake_synth(state, sentence):
             calls.append(sentence)
-            return True
+            return TtsUnit(text=sentence, blocks=[b"AUDIO"], ok=True)
 
         with (
-            mock.patch("app.services.tts.synthesize", side_effect=fake_synth),
+            mock.patch("app.services.tts.synth", side_effect=fake_synth),
             mock.patch("app.services.tts.TTS_FIRST_CHARS", 1),
             mock.patch("app.services.tts.TTS_CHUNK_CHARS", 1),
             TestClient(app) as client,
@@ -319,6 +319,44 @@ class VoiceServerTests(unittest.TestCase):
         joined = "".join(calls)
         for s in ("第一句。", "第二句。", "第三句。", "第四句。"):
             self.assertIn(s, joined)
+
+    @mock.patch("app.agent.coach.db.fts_search", return_value=[])
+    @mock.patch(
+        "app.agent.llm.chat_stream", return_value=iter(["第一句。第二句。第三句。第四句。"])
+    )
+    def test_synth_runs_concurrently(self, mock_chat_stream, mock_fts):
+        """bug #12 回归：合成阶段必须并发（受 sem 限流），不能被推送顺序锁串行化。
+
+        修复前 _await_turn 位于合成之前，同一时刻只有 1 段在合成（sem 形同虚设）；
+        修复后 sem=3 时应有 ≥2 段同时在合成。
+        """
+        in_flight = 0
+        max_in_flight = 0
+
+        async def counting_synth(state, sentence):
+            nonlocal in_flight, max_in_flight
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            try:
+                await asyncio.sleep(0.05)  # 模拟在线合成的真实网络耗时
+            finally:
+                in_flight -= 1
+            return TtsUnit(text=sentence, blocks=[b"AUDIO"], ok=True)
+
+        with (
+            mock.patch("app.services.tts.synth", side_effect=counting_synth),
+            mock.patch("app.services.tts.TTS_FIRST_CHARS", 1),
+            mock.patch("app.services.tts.TTS_CHUNK_CHARS", 1),
+            TestClient(app) as client,
+            client.websocket_connect(self._ws_url(client)) as ws,
+        ):
+            _recv_until_done(ws)  # 消化开场白（单段，不参与统计）
+            max_in_flight = 0
+            ws.send_text(json.dumps({"type": "text", "content": "你好"}, ensure_ascii=False))
+            while True:
+                if json.loads(ws.receive_text())["type"] == "done":
+                    break
+        self.assertGreaterEqual(max_in_flight, 2, "四段文本应有多段同时在合成（sem=3）")
 
     def test_circuit_breaker_skips_online(self):
         """熔断期间 _synthesize 直接降级，不再调用 edge-tts（避免每次干等）；状态按连接隔离。"""
@@ -478,13 +516,13 @@ class VoiceServerTests(unittest.TestCase):
 
         calls: list[str] = []
 
-        async def recording_synth(ws, state, sentence):
+        async def recording_synth(state, sentence):
             calls.append(sentence)
-            return True
+            return TtsUnit(text=sentence, blocks=[b"AUDIO"], ok=True)
 
         with (
             TestClient(app) as client,
-            mock.patch("app.services.tts.synthesize", side_effect=recording_synth),
+            mock.patch("app.services.tts.synth", side_effect=recording_synth),
             client.websocket_connect(self._ws_url(client)) as ws,
         ):
             _recv_until_done(ws)
@@ -539,7 +577,7 @@ class VoiceServerTests(unittest.TestCase):
         with (
             mock.patch("app.agent.llm.chat_stream", side_effect=fake_stream),
             TestClient(app) as client,
-            mock.patch("app.services.tts.synthesize", side_effect=_fake_synth),
+            mock.patch("app.services.tts.synth", side_effect=_fake_synth),
             client.websocket_connect(self._ws_url(client)) as ws,
         ):
             greeting_deltas, *_ = _recv_until_done(ws)
@@ -713,9 +751,14 @@ class VoiceServerTests(unittest.TestCase):
 
         with (
             TestClient(app) as client,
-            mock.patch("app.services.tts.synthesize", side_effect=_fake_synth),
+            mock.patch("app.services.tts.synth", side_effect=_fake_synth),
             mock.patch("app.voice_ws.DashScopeASR", FakeASR),
             mock.patch("app.voice_ws.ASR_RETRY_DELAY", 0.05),
+            # 必须显式声明"识别服务已配置"：未配置 Key 时服务端判定为配置类故障、
+            # 直接终态返回且不启动监督重连（bug #23），这些用例就会永远等不到
+            # asr_ready。不能依赖真实 DASHSCOPE_API_KEY——没有 .env 的 CI 环境
+            # 会让 ws.receive_text() 无限阻塞，把 job 挂到超时（曾挂满 6 小时）。
+            mock.patch("app.core.config.DASHSCOPE_API_KEY", "sk-test"),
             client.websocket_connect(self._ws_url(client)) as ws,
         ):
             _recv_until_done(ws)  # 消化开场白
@@ -757,9 +800,14 @@ class VoiceServerTests(unittest.TestCase):
 
         with (
             TestClient(app) as client,
-            mock.patch("app.services.tts.synthesize", side_effect=_fake_synth),
+            mock.patch("app.services.tts.synth", side_effect=_fake_synth),
             mock.patch("app.voice_ws.DashScopeASR", FakeASR),
             mock.patch("app.voice_ws.ASR_RETRY_DELAY", 0.05),
+            # 必须显式声明"识别服务已配置"：未配置 Key 时服务端判定为配置类故障、
+            # 直接终态返回且不启动监督重连（bug #23），这些用例就会永远等不到
+            # asr_ready。不能依赖真实 DASHSCOPE_API_KEY——没有 .env 的 CI 环境
+            # 会让 ws.receive_text() 无限阻塞，把 job 挂到超时（曾挂满 6 小时）。
+            mock.patch("app.core.config.DASHSCOPE_API_KEY", "sk-test"),
             client.websocket_connect(self._ws_url(client)) as ws,
         ):
             _recv_until_done(ws)  # 消化开场白
@@ -784,7 +832,7 @@ class VoiceServerTests(unittest.TestCase):
         with (
             TestClient(app) as client,
             mock.patch("app.agent.llm.chat_stream", side_effect=fake_stream),
-            mock.patch("app.services.tts.synthesize", side_effect=_fake_synth),
+            mock.patch("app.services.tts.synth", side_effect=_fake_synth),
         ):
             with client.websocket_connect(self._ws_url(client)) as ws:
                 greeting1, *_ = _recv_until_done(ws)
@@ -845,7 +893,7 @@ class VoiceServerTests(unittest.TestCase):
         with (
             TestClient(app) as client,
             mock.patch("app.agent.llm.chat_stream", side_effect=fake_stream),
-            mock.patch("app.services.tts.synthesize", side_effect=_fake_synth),
+            mock.patch("app.services.tts.synth", side_effect=_fake_synth),
             mock.patch("app.core.config.VOICE_TEXT_RATE_LIMIT", 2),
             mock.patch("app.core.config.VOICE_TEXT_RATE_WINDOW", 60),
         ):
@@ -900,7 +948,7 @@ class VoiceServerTests(unittest.TestCase):
         with (
             TestClient(app) as client,
             mock.patch("app.agent.llm.chat_stream", side_effect=slow_stream),
-            mock.patch("app.services.tts.synthesize", side_effect=_fake_synth),
+            mock.patch("app.services.tts.synth", side_effect=_fake_synth),
             client.websocket_connect(self._ws_url(client)) as ws,
         ):
             try:
@@ -932,25 +980,17 @@ class VoiceServerTests(unittest.TestCase):
         """
         synth_order: list[str] = []
 
-        async def slow_first(ws, state, sentence):
+        async def slow_first(state, sentence):
             synth_order.append(sentence)
             if len(synth_order) == 1:
                 await asyncio.sleep(0.3)  # 第一段故意慢，模拟网络抖动
-            sid = state.sid + 1
-            state.sid = sid
-            await ws.send_text(
-                json.dumps(
-                    {"type": "audio_start", "sid": sid, "text": sentence}, ensure_ascii=False
-                )
-            )
-            await ws.send_text(json.dumps({"type": "audio_end", "sid": sid}))
-            return True
+            return TtsUnit(text=sentence, blocks=[sentence.encode("utf-8")], ok=True)
 
         pushed: list[str] = []
 
         with (
             TestClient(app) as client,
-            mock.patch("app.services.tts.synthesize", side_effect=slow_first),
+            mock.patch("app.services.tts.synth", side_effect=slow_first),
             mock.patch("app.services.tts.TTS_FIRST_CHARS", 1),
             mock.patch("app.services.tts.TTS_CHUNK_CHARS", 1),
             client.websocket_connect(self._ws_url(client)) as ws,

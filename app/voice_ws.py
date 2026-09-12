@@ -31,7 +31,7 @@ from app.agent.coach import InterviewSession
 from app.core import config
 from app.core.ratelimit import hit
 from app.services import prompts, tts
-from app.services.asr_client import DashScopeASR
+from app.services.asr_client import DashScopeASR, asr_permanently_unavailable
 from app.stores import auth, session_store, voice_store
 
 logger = logging.getLogger("interview_coach.voice_ws")
@@ -200,6 +200,15 @@ class VoiceConnection:
             # 后续断线由 _asr_supervisor 自动重连，无需前端反复重发
             if self.asr is None and (self.asr_retry is None or self.asr_retry.done()):
                 sr = int(msg.get("sample_rate") or config.ASR_SAMPLE_RATE)
+                # 配置类故障（缺依赖/缺 Key）重试也无效，直接告知终态、不启动重连（bug #23）
+                if asr_permanently_unavailable():
+                    await self._send(
+                        {
+                            "type": "asr_error",
+                            "message": "语音识别不可用（未配置识别服务），请检查服务端配置",
+                        }
+                    )
+                    return
                 if not await self._start_asr(sr):
                     await self._send(
                         {
@@ -321,11 +330,20 @@ class VoiceConnection:
         return False
 
     async def _asr_supervisor(self, sr: int) -> None:
-        """ASR 断线后自动重连（指数退避 3s→20s），直到通话结束。"""
+        """ASR 断线后自动重连（指数退避 3s→20s），直到通话结束或永久不可用。"""
         delay = ASR_RETRY_DELAY
         while not self.asr_stopping:
             await asyncio.sleep(delay)
             if self.asr_stopping:
+                return
+            # 配置类故障（缺依赖/缺 Key）重试也无效，停止空转并告知终态（bug #23）
+            if asr_permanently_unavailable():
+                await self._send(
+                    {
+                        "type": "asr_error",
+                        "message": "语音识别不可用（未配置识别服务），请检查服务端配置",
+                    }
+                )
                 return
             if self.asr is None:
                 ok = await self._start_asr(sr)
@@ -364,6 +382,9 @@ async def _produce(ws: WebSocket, session: InterviewSession, text: str) -> None:
     state = tts.TtsState()
     tts_tasks: list[asyncio.Task] = []
     sem = asyncio.Semaphore(tts.TTS_MAX_CONCURRENCY)
+    # 语音回合也要维护共享文字历史，否则 REST 侧 history_for_display 优先读
+    # display_history 时，语音回合会从文字历史中永久缺失（bug #7）
+    session.display_history.append(["user", text])
 
     # 推送串行化：并发合成的任务按"创建顺序"依次推送，保证 sid 分配顺序 ==
     # 音频内容顺序。否则先合成完成的任务先 flush，sid 会被后创建的内容抢占，
@@ -393,27 +414,31 @@ async def _produce(ws: WebSocket, session: InterviewSession, text: str) -> None:
         tts_buf = ""
 
     async def _tts(chunk: str, slot: int) -> None:
-        """合成一段（约 2-3 句）：限制并发；在线失败后本回复剩余段直接降级本地语音。"""
+        """合成一段（约 2-3 句）并按序推送。
+
+        两个阶段的锁粒度必须分开（bug #12）：
+        - 合成受 sem 限流，**可并发**（CosyVoice 单段要 4-6 秒，串行会慢到不可用）；
+        - 推送受 _await_turn 顺序锁保护，保证 sid 分配顺序 == 音频内容顺序。
+        此前顺序锁套在合成之外，把合成本身也一起串行化了，sem 形同虚设。
+
+        降级开关 state.ok 在临界区内读取并置位：某段在线合成失败后，其余段
+        立即跳过在线合成改走本地语音，不必各自再等一次超时（并发后尤其重要，
+        否则同批进 sem 的几段会各自白等一次）。
+        """
         try:
+            chunk = tts.clean_tts_text(chunk)
+            if not chunk:
+                return
             async with sem:
-                chunk = tts.clean_tts_text(chunk)
-                if not chunk:
-                    return
-                await _await_turn(slot)
                 if state.ok:
-                    ok = await tts.synthesize(ws, state, chunk)
-                    if not ok:
+                    unit = await tts.synth(state, chunk)
+                    if not unit.ok:
                         state.ok = False
                 else:
-                    my_sid = state.sid + 1
-                    state.sid = my_sid
-                    await ws.send_text(
-                        json.dumps(
-                            {"type": "audio_start", "sid": my_sid, "text": chunk},
-                            ensure_ascii=False,
-                        )
-                    )
-                    await ws.send_text(json.dumps({"type": "tts_error", "sid": my_sid}))
+                    unit = tts.TtsUnit(chunk)
+            # 取得推送顺序权后再推：sid 必须按文本顺序分配
+            await _await_turn(slot)
+            await tts.push(ws, state, unit)
         except asyncio.CancelledError:
             raise
         finally:
@@ -447,6 +472,9 @@ async def _produce(ws: WebSocket, session: InterviewSession, text: str) -> None:
         _flush_tts()
         if tts_tasks:
             await asyncio.gather(*tts_tasks)
+        # 助手回复补进共享文字历史（与 REST chat 一致，刷新后文字版能看到语音回合，bug #7）
+        if session.messages and session.messages[-1].get("role") == "assistant":
+            session.display_history.append(["assistant", session.messages[-1]["content"]])
         await ws.send_text(json.dumps({"type": "done"}))
     except asyncio.CancelledError:
         for t in tts_tasks:
@@ -486,7 +514,8 @@ async def _produce_greeting(ws: WebSocket, greeting: str) -> None:
             if not s.strip():
                 continue
             await ws.send_text(json.dumps({"type": "delta", "content": s}, ensure_ascii=False))
-        await tts.synthesize(ws, state, greeting.strip())
+        unit = await tts.synth(state, greeting.strip())
+        await tts.push(ws, state, unit)
         await ws.send_text(json.dumps({"type": "done"}))
     except asyncio.CancelledError:
         logger.info("开场白被用户打断")

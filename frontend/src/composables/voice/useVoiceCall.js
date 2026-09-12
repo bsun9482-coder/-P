@@ -538,6 +538,7 @@ export function useVoiceCall() {
   }
 
   function startFallbackSpeech(text) {
+    if (V.suppressAudio) return // 已挂断/打断：放弃残留播报（bug #26）
     if (!V.speaking) {
       setPhase(PHASE.SPEAKING)
       setStatus('播报中…', true)
@@ -547,7 +548,14 @@ export function useVoiceCall() {
       V.fallbackActive = Math.max(0, V.fallbackActive - 1)
       drainFallback()
     }
+    let guard = false // 幂等护栏：事件与超时只触发一次 doSpeak（bug #20）
     const doSpeak = () => {
+      if (guard) return
+      guard = true
+      if (V.suppressAudio) {
+        fallbackEnd()
+        return
+      }
       const u = new SpeechSynthesisUtterance(text)
       u.lang = 'zh-CN'
       u.rate = 0.95
@@ -759,6 +767,15 @@ export function useVoiceCall() {
     if (V.timerInt) {
       clearInterval(V.timerInt)
       V.timerInt = null
+    }
+    // 关闭并释放 AudioContext，避免反复进出语音页泄漏到上限后静默无声（bug #13）
+    if (V.audioCtx) {
+      try {
+        V.audioCtx.close()
+      } catch (e) {
+        /* 忽略 */
+      }
+      V.audioCtx = null
     }
   }
 

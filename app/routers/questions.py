@@ -110,6 +110,9 @@ def import_csv(body: dict, user_row=auth.CurrentUser) -> dict:
     content = (body or {}).get("content") or ""
     if not content.strip():
         raise HTTPException(status_code=400, detail="请粘贴 CSV 内容")
+    if len(content) > 2_000_000:
+        # 超大请求直接拒绝，防止一次性占用过多内存并让 DB 膨胀（bug #33）
+        raise HTTPException(status_code=413, detail="导入内容过大，请分批导入（最多 2MB）")
     stats = importer.import_questions_csv(content)
     if not stats.get("rows"):
         raise HTTPException(status_code=400, detail="没有可导入的题目，请检查 CSV 格式")

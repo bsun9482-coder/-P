@@ -100,7 +100,7 @@ class ChatRateLimitAndLockTests(unittest.TestCase):
     def test_chat_rate_limited(self):
         with (
             mock.patch("app.agent.llm.chat_stream", return_value=iter(["回复。"])),
-            mock.patch("app.services.tts.synthesize"),
+            mock.patch("app.services.tts.synth"),
             mock.patch("app.core.config.VOICE_TEXT_RATE_LIMIT", 1),
         ):
             ok = self.client.post("/api/chat", json={"message": "你好"}, headers=self.hdr)

@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CSS_PATH = ROOT / "frontend" / "src" / "styles" / "main.css"
 BRAND_TOKENS = ("--brand", "--brand-2", "--brand-light", "--brand-rgb")
-BRAND_LITERALS = ("#4f6ef7", "#6482f8", "#7a93ff", "rgba(79,110,247")
+BRAND_LITERALS = ("#d97852", "#c4603a", "#f3b599", "rgba(217,120,82")
 
 _VAR_RE = re.compile(r"var\(\s*(--[\w-]+)")
 

@@ -149,11 +149,23 @@ def session_history(
 
 #: 每用户聊天锁：同一用户同时只允许一条 SSE 流在推进（bug #21：并发请求各自
 #: 反序列化独立会话副本、互相覆盖 save_session，丢回合+双份 LLM 计费）。
+#: 用有界字典防止长期运行后无限增长（bug #32）：超限时清理未持有中的锁。
+_MAX_CHAT_LOCKS = 2000
 _chat_locks: dict[int, asyncio.Lock] = {}
 
 
 def _get_chat_lock(user_id: int) -> asyncio.Lock:
-    return _chat_locks.setdefault(user_id, asyncio.Lock())
+    lock = _chat_locks.get(user_id)
+    if lock is not None:
+        return lock
+    if len(_chat_locks) >= _MAX_CHAT_LOCKS:
+        # 淘汰未持有中的锁，避免内存无限增长；持有中的锁不可清，否则并发会被破坏
+        for uid, lk in list(_chat_locks.items()):
+            if not lk.locked() and lk is not lock and len(_chat_locks) < _MAX_CHAT_LOCKS:
+                _chat_locks.pop(uid, None)
+    lock = asyncio.Lock()
+    _chat_locks[user_id] = lock
+    return lock
 
 
 @router.post("/chat")
@@ -178,8 +190,13 @@ async def chat(body: ChatBody, user_row=auth.CurrentUser):
         session.display_history = [["assistant", prompts.COACH_GREETING]]
         session_store.start_session(user_row["id"], session)
 
-    gen = session.handle_stream(body.message)
-    session.display_history.append(["user", body.message])
+    msg = (body.message or "").strip()
+    if not msg:
+        # 纯空白消息不做 LLM 调用，避免白付一次计费（bug #34）
+        raise HTTPException(status_code=400, detail="消息内容不能为空")
+
+    gen = session.handle_stream(msg)
+    session.display_history.append(["user", msg])
 
     def _next_chunk():
         try:
@@ -222,6 +239,17 @@ async def chat(body: ChatBody, user_row=auth.CurrentUser):
                         "report_data": parse_report(report) if report else None,
                     }
                 )
+            except asyncio.CancelledError:
+                # 客户端断开：进程级异常（BaseException）不会被上面的 try 吞掉。
+                # 把已生成的部分回复落库，避免整轮回合丢失（bug #10）；
+                # to_thread 中的同步生成器无法中断，但落库后资源会随生成器自然结束释放。
+                if session.messages and session.messages[-1].get("content", "").strip():
+                    session.display_history.append(["assistant", session.messages[-1]["content"]])
+                try:
+                    session_store.save_session(user_row["id"], session)
+                except Exception:
+                    logger.exception("断开时会话持久化失败（user=%s）", user_row["username"])
+                raise
             except Exception:  # noqa: BLE001 - 流式里兜底所有异常并告知前端
                 logger.exception("聊天流式处理异常")
                 # 内部异常细节不回显（bug #13）：与 voice_ws 一致只发固定文案

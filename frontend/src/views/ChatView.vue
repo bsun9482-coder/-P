@@ -275,8 +275,18 @@ function isReportBubble(m, i) {
 }
 
 onMounted(async () => {
-  await chat.load()
-  await chat.refreshVoiceStatus()
+  try {
+    await chat.load()
+  } catch (e) {
+    ElMessage.error('加载会话失败，请检查网络后重试')
+  }
+  if (!chat.active) {
+    try {
+      await chat.refreshVoiceStatus()
+    } catch (e) {
+      /* 忽略 */
+    }
+  }
   loadStats()
   loadHistory()
   if (auth.user?.persona) chat.persona = chat.persona || auth.user.persona
@@ -289,25 +299,38 @@ function onWelcomeAction(key) {
 }
 
 async function startMock() {
-  await chat.start({ mode: 'mock', persona: persona.value })
+  try {
+    await chat.start({ mode: 'mock', persona: persona.value })
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '开始模拟面试失败，请稍后重试')
+  }
   await nextTick()
   scrollBottom()
 }
 
 async function startCoach() {
-  await chat.start({ mode: 'coach', persona: persona.value })
+  try {
+    await chat.start({ mode: 'coach', persona: persona.value })
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '开始辅导失败，请稍后重试')
+  }
   await nextTick()
   scrollBottom()
 }
 
 async function startComprehensive(titles) {
   bankVisible.value = false
-  await chat.start({
-    mode: 'mock',
-    questions: titles,
-    job_title: '综合练习',
-    persona: persona.value,
-  })
+  try {
+    await chat.start({
+      mode: 'mock',
+      questions: titles,
+      job_title: '综合练习',
+      persona: persona.value,
+    })
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '开始综合面试失败，请稍后重试')
+    return
+  }
   ElMessage.success(`已挑选 ${titles.length} 道题开始综合面试`)
   await nextTick()
   scrollBottom()
@@ -320,7 +343,11 @@ async function onCustomDone() {
 }
 
 async function backHome() {
-  await chat.reset()
+  try {
+    await chat.reset()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '返回首页失败，请稍后重试')
+  }
   input.value = ''
 }
 
@@ -356,6 +383,8 @@ async function cancelVoice() {
 
 async function onCommand(cmd) {
   if (cmd === 'logout') {
+    // 先中止进行中的 SSE 流，避免后端继续生成、聊天锁被占用（bug #15）
+    chat._abortStream()
     await auth.logout()
     // 重置聊天状态：否则下一账号登录首帧会闪现上一账号的对话/报告（bug #20）
     chat.$reset()
@@ -368,7 +397,21 @@ async function onCommand(cmd) {
 }
 
 async function saveProfile() {
-  await auth.updateMe({ nickname: profile.nickname, persona: profile.persona })
+  // 昵称超长直接在前端拦截，避免依赖后端 422（bug #27）
+  if (profile.nickname && profile.nickname.length > 32) {
+    ElMessage.warning('昵称最多 32 个字符')
+    return
+  }
+  if (profile.persona && profile.persona.length > 64) {
+    ElMessage.warning('人格描述最多 64 个字符')
+    return
+  }
+  try {
+    await auth.updateMe({ nickname: profile.nickname, persona: profile.persona })
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败，请稍后重试')
+    return
+  }
   if (profile.persona) chat.persona = profile.persona
   ElMessage.success('已保存')
   profileVisible.value = false

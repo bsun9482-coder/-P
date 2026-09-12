@@ -100,8 +100,17 @@ async function onSubmit() {
     ElMessage.warning('请输入用户名')
     return
   }
+  // 与后端 Pydantic 约束对齐（3-32），避免 422 结构错误原文弹出（bug #27）
+  if (username.length < 3 || username.length > 32) {
+    ElMessage.warning('用户名需 3-32 个字符')
+    return
+  }
   if (form.password.length < 6) {
     ElMessage.warning('密码至少 6 位')
+    return
+  }
+  if (tab.value === 'register' && form.nickname && form.nickname.length > 32) {
+    ElMessage.warning('昵称最多 32 个字符')
     return
   }
   loading.value = true

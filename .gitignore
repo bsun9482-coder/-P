@@ -3,8 +3,9 @@
 .env.*
 !.env.example
 
-# Reasonix 工具元数据
+# 工具元数据
 .reasonix/
+.workbuddy/
 
 # 数据与缓存
 data/

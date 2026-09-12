@@ -21,6 +21,10 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    # 单个用例挂死时快速失败，不要占满 GitHub 默认的 360 分钟上限。
+    # （曾因 ASR 用例在无 DASHSCOPE_API_KEY 的 CI 环境下无限等待，
+    #   job 挂满 6 小时才被强制取消）
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:

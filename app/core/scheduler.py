@@ -13,7 +13,7 @@ import atexit
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -112,21 +112,31 @@ def start_scheduler() -> BackgroundScheduler | None:
     )
     logger.info("已注册每日抓取: %02d:%02d (%s)", hour, minute, config.SCHEDULER_TZ)
 
-    # 2) 间隔抓取（可选）
+    # 2) 间隔抓取（可选）：若间隔是 24h 的倍数，其触发时刻会与每日固定时间
+    #    完全重合（bug #8：同刻双 job 并发重复抓取+清洗，双倍 LLM 成本），
+    #    此时以每日任务为准，不再额外注册间隔任务。
     if config.CRAWL_INTERVAL_HOURS > 0:
-        _scheduler.add_job(
-            _crawl_job,
-            IntervalTrigger(hours=config.CRAWL_INTERVAL_HOURS),
-            id="interval_crawl",
-            replace_existing=True,
-        )
-        logger.info("已注册间隔抓取: 每 %s 小时", config.CRAWL_INTERVAL_HOURS)
+        if config.CRAWL_INTERVAL_HOURS % 24 == 0:
+            logger.info(
+                "CRAWL_INTERVAL_HOURS=%s 为 24h 倍数，已由每日任务覆盖，跳过间隔注册（bug #8）",
+                config.CRAWL_INTERVAL_HOURS,
+            )
+        else:
+            _scheduler.add_job(
+                _crawl_job,
+                IntervalTrigger(hours=config.CRAWL_INTERVAL_HOURS),
+                id="interval_crawl",
+                replace_existing=True,
+            )
+            logger.info("已注册间隔抓取: 每 %s 小时", config.CRAWL_INTERVAL_HOURS)
 
     _scheduler.start()
     logger.info("调度器已启动")
 
-    # 3) 启动后立即后台抓一次（不阻塞主线程）
-    _scheduler.add_job(_crawl_job, id="bootstrap_crawl", next_run_time=datetime.now())
+    # 3) 启动后立即后台抓一次（不阻塞主线程）。
+    #    用 UTC now 而非本地墙钟：调度器时区固定为 SCHEDULER_TZ，naive 本地时间会被
+    #    按该时区解释，非上海时区主机会导致"启动即抓取"被推迟数小时（bug #9）。
+    _scheduler.add_job(_crawl_job, id="bootstrap_crawl", next_run_time=datetime.now(timezone.utc))
     logger.info("已注册启动抓取任务")
     return _scheduler
 

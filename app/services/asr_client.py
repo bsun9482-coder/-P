@@ -78,6 +78,15 @@ class _AsrCallback(RecognitionCallback):
                 asyncio.run_coroutine_threadsafe(self._on_error(code, message), self._loop)
 
 
+def asr_permanently_unavailable() -> bool:
+    """ASR 是否"永久不可用"（缺依赖 / 缺 API Key），重连也不会变好。
+
+    供语音链路区分瞬时故障（网络抖动，值得指数退避重连）与配置类故障
+    （重试再多次也不可能成功，应停止空转并告知用户终态，bug #23）。
+    """
+    return not _DASHSCOPE_AVAILABLE or not config.DASHSCOPE_API_KEY
+
+
 class DashScopeASR:
     """每通语音通话一个实例：start 后持续 send PCM，句子结束回调识别文本。"""
 

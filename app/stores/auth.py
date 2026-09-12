@@ -21,7 +21,9 @@ from fastapi import Depends, Header, HTTPException
 import app.core.db as db
 from app.core import config
 
-_PBKDF2_ITERATIONS = 200_000
+#: 密码哈希迭代次数（PBKDF2-HMAC-SHA256）。OWASP 现行推荐 ≥600k；
+#: 旧账号哈希内嵌自有迭代数，verify_password 按存储值校验，升级不影响存量登录。
+_PBKDF2_ITERATIONS = 600_000
 
 _credentials_exc = HTTPException(
     status_code=401,

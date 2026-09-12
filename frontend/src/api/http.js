@@ -30,7 +30,10 @@ http.interceptors.response.use(
     if (err.response && err.response.status === 401) {
       setToken('')
       const p = window.location.pathname
-      if (!p.startsWith('/login')) window.location.href = '/login'
+      if (!p.startsWith('/login')) {
+        // 携带来源页，登录后回到原页面（bug #28，与路由守卫行为一致）
+        window.location.href = `/login?redirect=${encodeURIComponent(p + window.location.search)}`
+      }
     }
     return Promise.reject(err)
   },

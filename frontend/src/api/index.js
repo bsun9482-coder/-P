@@ -1,5 +1,22 @@
 // 后端 API 统一封装。
-import { getToken, http, readSse, safeText } from './http'
+import { getToken, http, readSse, safeText, setToken } from './http'
+
+/**
+ * 解析 SSE 接口错误响应的可读文案。
+ * 优先取 JSON 的 detail 字段（FastAPI），否则回退原始文本。
+ * 统一前端对后端错误结构的解析，避免把 {"detail": ...} 原文直接抛给用户（bug #29）。
+ */
+async function sseErrorText(res) {
+  try {
+    const j = await res.json()
+    const d = j?.detail
+    if (typeof d === 'string') return d
+    return Array.isArray(d) ? d.map((x) => x.msg).join('；') : JSON.stringify(j)
+  } catch (e) {
+    /* fallthrough */
+  }
+  return safeText(res)
+}
 
 // ---- 认证 ----
 export const authApi = {
@@ -41,7 +58,16 @@ export async function chatStream(message, handlers = {}) {
     return
   }
   if (!res.ok || !res.body) {
-    handlers.onError?.(await safeText(res))
+    // 401：与 REST 拦截器一致，清令牌并跳登录（bug #2），携带来源页便于回跳（bug #28）
+    if (res.status === 401) {
+      setToken('')
+      const p = window.location.pathname
+      if (!p.startsWith('/login')) {
+        window.location.href = `/login?redirect=${encodeURIComponent(p + window.location.search)}`
+      }
+      return
+    }
+    handlers.onError?.(await sseErrorText(res))
     return
   }
   await readSse(
@@ -89,7 +115,16 @@ export const customApi = {
         return
       }
       if (!res.ok || !res.body) {
-        handlers.onError?.(await safeText(res))
+        // 401：与 REST 拦截器一致，清令牌并跳登录（bug #2），携带来源页便于回跳（bug #28）
+        if (res.status === 401) {
+          setToken('')
+          const p = window.location.pathname
+          if (!p.startsWith('/login')) {
+            window.location.href = `/login?redirect=${encodeURIComponent(p + window.location.search)}`
+          }
+          return
+        }
+        handlers.onError?.(await sseErrorText(res))
         return
       }
       await readSse(

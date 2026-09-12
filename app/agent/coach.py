@@ -87,15 +87,17 @@ def _extract_weak_points(report: str) -> str | None:
 def _extract_section_items(report: str, section_key: str) -> list[str]:
     """抽取报告中某个小节的清单行（标题含 section_key，条目以 - / • / 数字开头）。
 
-    标题判定仅在未激活时生效，避免条目本身含 section_key 字样被误判为
-    新标题而截断清单（bug #16）。
+    标题判定仅在未激活时生效，且要求是"非清单行"（标题样式），
+    避免「薄弱点」小节里含 section_key 字样的清单行（如"需要改进×"）被
+    误判为新标题而提前激活，导致改进清单混入薄弱点条目（bug #30）。
     """
     out: list[str] = []
     active = False
     for raw in (report or "").splitlines():
         line = raw.strip()
         if not active:
-            if section_key in line:
+            is_list_item = line.startswith(("-", "•")) or bool(re.match(r"^\d+[.、]", line))
+            if not is_list_item and section_key in line:
                 active = True
             continue
         if line.startswith(("-", "•")) or re.match(r"^\d+[.、]", line):
@@ -314,11 +316,38 @@ class InterviewSession:
     # ------------------------------------------------------------ 对外主入口
 
     def handle(self, user_text: str) -> str:
-        """同步入口：接收用户输入，推进状态，返回完整 AI 回复。"""
+        """同步入口：接收用户输入，推进状态，返回完整 AI 回复。
+
+        失败时回滚全部状态，与流式入口的"快照→提交→异常回滚"语义一致（bug #35），
+        避免同步调用方在 LLM 异常后留下"已追加但 turn 未推进"的中间态。
+        """
         user_text = _sanitize_input(user_text)
-        if self.mode == "coach":
-            return self._handle_coach(user_text)
-        return self._handle_mock(user_text)
+        snapshot = self._state_snapshot()
+        try:
+            if self.mode == "coach":
+                return self._handle_coach(user_text)
+            return self._handle_mock(user_text)
+        except Exception:
+            self._restore_snapshot(snapshot)
+            raise
+
+    def _state_snapshot(self) -> dict:
+        """深拷贝当前会话全部可变状态，用于异常回滚。"""
+        return {
+            "turn": self.turn,
+            "stage_idx": self.stage_idx,
+            "followup_count": self.followup_count,
+            "messages": copy.deepcopy(self.messages),
+            "answers": copy.deepcopy(self.answers),
+            "asked_ids": set(self.asked_ids),
+            "current_q": self.current_q,
+            "finished": self.finished,
+            "display_history": copy.deepcopy(self.display_history),
+        }
+
+    def _restore_snapshot(self, snap: dict) -> None:
+        for k, v in snap.items():
+            setattr(self, k, v)
 
     def handle_stream(self, user_text: str):
         """流式入口：返回生成器，逐段产出回复文本（配合 st.write_stream）。"""
@@ -559,7 +588,14 @@ class InterviewSession:
             self.stage_idx += 1
             if self.stage_idx >= self._total_questions():
                 return (yield from self._finish_report_stream())
-            return (yield from self._ask_next_question_stream())
+            # stage_idx 在此自增后出题；若出题流失败，需连同 stage_idx 一起回滚，
+            # 否则下次语音发言会跳过本道题（bug #5）
+            prev_stage = self.stage_idx
+            try:
+                return (yield from self._ask_next_question_stream())
+            except BaseException:
+                self.stage_idx = prev_stage
+                raise
 
         # 4) 报告已出：追加 hint 进上下文与展示历史，否则 session.py 会把
         # messages[-1]（仍是报告全文）重复追加一遍（bug #27）
@@ -585,6 +621,8 @@ class InterviewSession:
             stage_name, stage_tags, source, difficulty = prompts.STAGES[self.stage_idx]
             q = _pick_question(stage_tags, source, difficulty, self.asked_ids)
             if q is None:
+                # 与流式入口一致：空题库提示写入 messages，避免历史误记用户原文（bug #6）
+                self.messages.append({"role": "assistant", "content": EMPTY_BANK_HINT})
                 return EMPTY_BANK_HINT
             diff = q["difficulty"] or "未知"
         self.asked_ids.add(q["id"])
@@ -619,6 +657,10 @@ class InterviewSession:
             stage_name, stage_tags, source, difficulty = prompts.STAGES[self.stage_idx]
             q = _pick_question(stage_tags, source, difficulty, self.asked_ids)
             if q is None:
+                # 空题库提示同样写入 messages，否则 session.py 会把
+                # messages[-1]（用户原文）误当助手回复追加进历史（bug #6）
+                self.messages.append({"role": "assistant", "content": EMPTY_BANK_HINT})
+                self.turn = "answering" if self.custom_questions else self.turn
                 yield EMPTY_BANK_HINT
                 return EMPTY_BANK_HINT
             diff = q["difficulty"] or "未知"

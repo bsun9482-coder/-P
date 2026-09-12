@@ -22,7 +22,7 @@ import re
 import time
 from collections.abc import AsyncIterator
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import requests
@@ -72,6 +72,20 @@ class TtsState:
     voice: str = ""  # 本回复锁定的引擎（"cosyvoice"/"edge"），防止混音
     fails: int = 0  # 连续失败计数（连接级熔断）
     open_until: float = 0.0  # 熔断截止时刻（time.monotonic()）
+
+
+@dataclass
+class TtsUnit:
+    """一段已合成、待推送的语音。
+
+    合成（synth）与推送（push）分离，是为了让调用方能对两者分别加锁：
+    合成受并发信号量限制、可并行；推送必须按文本顺序串行以保证 sid 顺序
+    （bug #12：此前两者被同一把顺序锁圈住，合成本身被串行化）。
+    """
+
+    text: str  # 原始文本（降级时前端据此本地朗读）
+    blocks: list[bytes] = field(default_factory=list)  # 按序推送的音频单元
+    ok: bool = False  # 在线合成是否完整成功；False 且 blocks 非空 = 只合成了部分
 
 
 class Sender(Protocol):
@@ -237,18 +251,20 @@ async def _send_fail(ws: Sender, state: TtsState, sentence: str) -> None:
     await ws.send_text(_jmsg({"type": "tts_error", "sid": my_sid}))
 
 
-async def _flush(ws: Sender, state: TtsState, buf: list[bytes], text: str) -> None:
-    """把聚合好的音频块作为一个播放单元推送（audio_start/audio/audio_end 三连）。"""
+async def _flush(ws: Sender, state: TtsState, data: bytes, text: str) -> None:
+    """把一块音频作为一个播放单元推送（audio_start/audio/audio_end 三连）。"""
     my_sid = _next_sid(state)
-    data = base64.b64encode(b"".join(buf)).decode("ascii")
+    payload = base64.b64encode(data).decode("ascii")
     await ws.send_text(_jmsg({"type": "audio_start", "sid": my_sid, "text": text}))
-    await ws.send_text(_jmsg({"type": "audio", "sid": my_sid, "data": data}))
+    await ws.send_text(_jmsg({"type": "audio", "sid": my_sid, "data": payload}))
     await ws.send_text(_jmsg({"type": "audio_end", "sid": my_sid}))
 
 
-async def _try_once(ws: Sender, state: TtsState, sentence: str) -> tuple[bool, bool]:
-    """尝试一次在线合成，返回 (是否已推送过音频, 是否完整成功)。"""
-    sent_any = False
+async def _synth_once(state: TtsState, sentence: str) -> tuple[list[bytes], bool]:
+    """尝试一次在线合成，返回（按序的音频单元列表, 是否完整成功）。
+
+    只合成、不推送：推送由调用方在取得顺序权后执行（bug #12）。
+    """
     if config.VOICE_TTS == "cosyvoice" and state.voice != "edge":
         blocks: list[bytes] = []
         try:
@@ -261,10 +277,10 @@ async def _try_once(ws: Sender, state: TtsState, sentence: str) -> tuple[bool, b
             logger.warning("CosyVoice 不可用，本回复后续段落降级 edge-tts 保持音色一致")
         else:
             state.voice = "cosyvoice"
-            await _flush(ws, state, blocks, sentence)
-            return True, True
+            return blocks, True
     if edge_tts is None:
-        return sent_any, False
+        return [], False
+    units: list[bytes] = []
     buf: list[bytes] = []
     size = 0
     try:
@@ -272,51 +288,56 @@ async def _try_once(ws: Sender, state: TtsState, sentence: str) -> tuple[bool, b
             buf.append(block)
             size += len(block)
             if size >= TTS_CHUNK_TARGET:
-                await _flush(ws, state, buf, sentence)
-                sent_any = True
+                units.append(b"".join(buf))
                 buf = []
                 size = 0
         if buf:
-            await _flush(ws, state, buf, sentence)
-            sent_any = True
-        return sent_any, True
+            units.append(b"".join(buf))
+        return units, True
     except asyncio.CancelledError:
         raise
     except Exception as e:
         logger.warning("TTS 在线合成失败（sentence=%s）: %s", sentence[:30], e)
-        if buf and not sent_any:
-            # 已合成出部分音频：先推出去，避免浏览器整句重播造成重复/卡顿
-            try:
-                await _flush(ws, state, buf, sentence)
-                sent_any = True
-            except Exception:
-                sent_any = False
-        return sent_any, False
+        if buf:
+            # 已合成出部分音频：一并返回推送，避免浏览器整句重播造成重复/卡顿
+            units.append(b"".join(buf))
+        return units, False
 
 
-async def synthesize(ws: Sender, state: TtsState, sentence: str) -> bool:
-    """把一段文字合成语音并推送（audio_start/audio/audio_end 三连）。
+async def synth(state: TtsState, sentence: str) -> TtsUnit:
+    """合成一段语音但**不推送**，返回待推送单元。
 
-    连接级失败（尚未出音频）会重试一次；全部失败才发送 audio_start + tts_error
-    回退本地语音。失败/成功都会更新连接级熔断状态。
+    连接级失败（尚未出音频）会重试一次；失败/成功都会更新连接级熔断状态。
+    与 push() 分离，是为了让调用方把"合成"（可并发）与"推送"（必须按文本
+    顺序串行）分别加锁——此前两者被同一把顺序锁圈住，合成本身被串行化（bug #12）。
     """
     if not sentence.strip():
-        return False
+        return TtsUnit(sentence)
     if config.VOICE_TTS not in ("edge", "cosyvoice") or _circuit_open(state):
-        await _send_fail(ws, state, sentence)
-        return False
+        return TtsUnit(sentence)
     if config.VOICE_TTS == "cosyvoice" and not config.DASHSCOPE_API_KEY:
-        await _send_fail(ws, state, sentence)
-        return False
-    sent_any, ok = await _try_once(ws, state, sentence)
-    if not ok and not sent_any:
+        return TtsUnit(sentence)
+    blocks, ok = await _synth_once(state, sentence)
+    if not ok and not blocks:
         # 连接级失败且完全没出音频：重试一次（edge-tts 多为瞬时连接失败）
-        sent_any, ok = await _try_once(ws, state, sentence)
+        blocks, ok = await _synth_once(state, sentence)
     if ok:
         _note_success(state)
-        return True
-    _note_failure(state)
-    if not sent_any:
+    else:
+        _note_failure(state)
+    return TtsUnit(sentence, blocks, ok)
+
+
+async def push(ws: Sender, state: TtsState, unit: TtsUnit) -> None:
+    """推送一个已合成单元：按序分配 sid 并发送音频三连帧。
+
+    无音频（在线合成失败/本回复已降级）时改发 audio_start + tts_error，
+    由浏览器回退本地朗读。调用方必须先取得推送顺序权，否则 sid 会被后创建的
+    内容抢占，浏览器按 sid 排序播放时内容就会乱序。
+    """
+    if not unit.blocks:
         with suppress(Exception):
-            await _send_fail(ws, state, sentence)
-    return False
+            await _send_fail(ws, state, unit.text)
+        return
+    for data in unit.blocks:
+        await _flush(ws, state, data, unit.text)

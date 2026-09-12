@@ -69,25 +69,37 @@
       </el-collapse-item>
     </el-collapse>
 
-    <!-- 筛选 -->
-    <el-row :gutter="10" class="filters">
-      <el-col :span="6"><el-select v-model="filters.source" placeholder="来源" clearable><el-option v-for="s in meta.sources" :key="s.key" :label="s.label" :value="s.key" /></el-select></el-col>
-      <el-col :span="6"><el-select v-model="filters.difficulty" placeholder="难度" clearable><el-option label="简单" value="简单" /><el-option label="中等" value="中等" /><el-option label="困难" value="困难" /></el-select></el-col>
-      <el-col :span="6"><el-select v-model="filters.company" placeholder="公司" clearable filterable><el-option v-for="c in meta.companies" :key="c" :label="c" :value="c" /></el-select></el-col>
-      <el-col :span="6"><el-input v-model="filters.keyword" placeholder="关键词，如 Redis / 索引" clearable @keyup.enter="load()" /></el-col>
-    </el-row>
+    <!-- 筛选：变更即自动应用；来源/公司无数据时隐藏对应筛选项，避免出现"无数据"死控件 -->
+    <div class="filters">
+      <el-select v-if="meta.sources.length" v-model="filters.source" placeholder="来源" clearable class="f-item" @change="load()">
+        <el-option v-for="s in meta.sources" :key="s.key" :label="s.label" :value="s.key" />
+      </el-select>
+      <el-select v-model="filters.difficulty" placeholder="难度" clearable class="f-item" @change="load()">
+        <el-option label="简单" value="简单" />
+        <el-option label="中等" value="中等" />
+        <el-option label="困难" value="困难" />
+      </el-select>
+      <el-select v-if="meta.companies.length" v-model="filters.company" placeholder="公司" clearable filterable class="f-item" @change="load()">
+        <el-option v-for="c in meta.companies" :key="c" :label="c" :value="c" />
+      </el-select>
+      <el-input v-model="filters.keyword" placeholder="关键词，如 Redis / 索引" clearable class="f-item" @keyup.enter="load()" @clear="load()" />
+    </div>
     <div class="tags-row">
-      <el-select v-model="filters.tags" multiple collapse-tags collapse-tags-tooltip placeholder="标签筛选" class="tags-select">
+      <el-select v-model="filters.tags" multiple collapse-tags collapse-tags-tooltip placeholder="标签筛选" class="tags-select" @change="load()">
         <el-option v-for="t in meta.tags" :key="t.name" :label="`${t.name} (${t.count})`" :value="t.name" />
       </el-select>
-      <el-checkbox v-model="filters.favoriteOnly" label="⭐ 仅看收藏" />
-      <el-button size="small" @click="load()">查询</el-button>
+      <el-checkbox v-model="filters.favoriteOnly" label="⭐ 仅看收藏" @change="load()" />
+      <el-button size="small" :loading="loading" @click="load()">查询</el-button>
     </div>
 
     <!-- 题目列表 + 已选 -->
     <div class="bank-body">
       <div class="qlist">
-        <el-empty v-if="loaded && !rows.length" description="没有找到匹配的题，换个关键词或筛选条件试试～" :image-size="80" />
+        <el-empty v-if="loaded && !error && !rows.length" description="没有找到匹配的题，换个关键词或筛选条件试试～" :image-size="80" />
+        <div v-else-if="error" class="bank-error">
+          <p>{{ error }}</p>
+          <el-button size="small" type="primary" @click="load()">重试</el-button>
+        </div>
         <div v-else-if="!loaded" class="skeleton">
           <div v-for="i in 4" :key="i" class="skeleton-row"></div>
         </div>
@@ -160,7 +172,10 @@ const filters = reactive({
 })
 const rows = ref([])
 const loaded = ref(false) // 首次加载完成前显示 loading 而非"暂无题目"空态（bug #30）
+const loading = ref(false) // 筛选请求进行中：查询按钮转圈，避免重复点击
+const error = ref('') // 加载失败提示；非空时列表区显示错误态 + 重试（bug #30 补）
 const favoriteIds = ref(new Set())
+let loadSeq = 0 // 请求代际号：丢弃过期响应，防止慢响应覆盖新筛选结果（查询竞态）
 const selected = ref([])
 const form = reactive({ title: '', answer: '', tags: '', difficulty: '中等', company: '' })
 const csvText = ref('')
@@ -176,25 +191,41 @@ function tagType(d) {
 }
 
 async function loadMeta() {
-  const m = await bankApi.meta()
-  meta.sources = m.sources
-  meta.companies = m.companies
-  meta.tags = m.tags
+  try {
+    const m = await bankApi.meta()
+    meta.sources = m.sources
+    meta.companies = m.companies
+    meta.tags = m.tags
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '加载筛选选项失败，请检查网络后重试')
+  }
 }
 
 async function load() {
-  const r = await bankApi.browse({
-    keyword: filters.keyword || undefined,
-    source: filters.source || undefined,
-    difficulty: filters.difficulty || undefined,
-    company: filters.company || undefined,
-    tags: filters.tags,
-    favorite_only: filters.favoriteOnly || undefined,
-    limit: 60,
-  })
-  rows.value = r.items
-  favoriteIds.value = new Set(r.favorite_ids)
-  loaded.value = true
+  const seq = ++loadSeq
+  loading.value = true
+  error.value = ''
+  try {
+    const r = await bankApi.browse({
+      keyword: filters.keyword || undefined,
+      source: filters.source || undefined,
+      difficulty: filters.difficulty || undefined,
+      company: filters.company || undefined,
+      tags: filters.tags,
+      favorite_only: filters.favoriteOnly || undefined,
+      limit: 60,
+    })
+    if (seq !== loadSeq) return // 已有更新的请求，丢弃本次过期结果（竞态守卫）
+    rows.value = r.items
+    favoriteIds.value = new Set(r.favorite_ids)
+    loaded.value = true
+  } catch (e) {
+    if (seq !== loadSeq) return
+    error.value = '加载题库失败，请检查网络后重试'
+    ElMessage.error(e?.response?.data?.detail || error.value)
+  } finally {
+    if (seq === loadSeq) loading.value = false
+  }
 }
 
 watch(
@@ -224,14 +255,19 @@ function removeSelected(id) {
 }
 
 async function toggleFav(q) {
-  if (favoriteIds.value.has(q.id)) {
-    await bankApi.removeFavorite(q.id)
-    favoriteIds.value.delete(q.id)
-    ElMessage.success('已取消收藏')
-  } else {
-    await bankApi.addFavorite(q.id)
-    favoriteIds.value.add(q.id)
-    ElMessage.success(`已收藏「${q.title.slice(0, 12)}」`)
+  const fav = favoriteIds.value.has(q.id)
+  try {
+    if (fav) {
+      await bankApi.removeFavorite(q.id)
+      favoriteIds.value.delete(q.id)
+      ElMessage.success('已取消收藏')
+    } else {
+      await bankApi.addFavorite(q.id)
+      favoriteIds.value.add(q.id)
+      ElMessage.success(`已收藏「${q.title.slice(0, 12)}」`)
+    }
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '操作失败，请稍后重试')
   }
 }
 
@@ -281,11 +317,29 @@ async function submitImport() {
   margin-top: 10px;
 }
 .filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-bottom: 10px;
+}
+/* 筛选项：等宽自适应；窄屏自动换行；来源/公司无数据隐藏后其余项自然补位 */
+.f-item {
+  flex: 1 1 190px;
+  min-width: 0;
 }
 .filters :deep(.el-select),
 .filters :deep(.el-input) {
   width: 100%;
+}
+/* 加载失败错误态 */
+.bank-error {
+  padding: 26px 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+.bank-error p {
+  margin: 0 0 12px;
 }
 .tags-row {
   display: flex;
@@ -415,13 +469,8 @@ async function submitImport() {
   margin-top: 10px;
 }
 
-/* 窄屏：筛选列改单列、题目/已选面板纵向堆叠、qsel 全宽 */
+/* 窄屏：题目/已选面板纵向堆叠、qsel 全宽（筛选区 flex 布局已自动换行，无需单独处理） */
 @media (max-width: 600px) {
-  .filters :deep(.el-col) {
-    width: 100%;
-    flex: none;
-    max-width: 100%;
-  }
   .bank-body {
     flex-direction: column;
   }

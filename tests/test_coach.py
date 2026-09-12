@@ -40,6 +40,22 @@ def test_parse_report_dimensions_scoped_to_score_section():
     assert data["improvements"] == ["阅读 Flask 源码 2 遍"]
 
 
+def test_extract_section_does_not_activate_on_keyword_in_list_item():
+    """薄弱点条目含"改进"字样时，不得误激活"改进建议"章节（bug #30）。"""
+    report = (
+        "【总分】78/100\n"
+        "- 技术正确性：32\n"
+        "知识薄弱点：\n"
+        "- 需要改进算法理解\n"
+        "- 熟悉 Python 3\n"
+        "改进建议：\n"
+        "- 阅读 Flask 源码\n"
+    )
+    data = coach.parse_report(report)
+    assert data["weak_points"] == ["需要改进算法理解", "熟悉 Python 3"]
+    assert data["improvements"] == ["阅读 Flask 源码"]
+
+
 class CoachFlowTests(unittest.TestCase):
     def setUp(self):
         """把数据库指向临时文件，避免测试把面试记录写进真实题库。"""

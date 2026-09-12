@@ -289,21 +289,25 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # favorites 原先对 question_id 有 UNIQUE 约束（无法多用户收藏同一题），需重建表。
         f_cols = {r[1] for r in conn.execute("PRAGMA table_info(favorites)")}
         if "user_id" not in f_cols:
-            conn.executescript(
-                """
-                CREATE TABLE favorites_new (
+            # 重建 favorites 表以支持多用户收藏。不用 executescript（内部会隐式提交，
+            # 破坏外层事务，DROP+RENAME 崩溃中间态不可恢复，藏品会遗留在孤儿表中，
+            # bug #31）；改用逐条 execute 让整个迁移共享同一事务，崩溃可原子回滚。
+            conn.execute("DROP TABLE IF EXISTS favorites_new")
+            conn.execute(
+                """CREATE TABLE favorites_new (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id     INTEGER,
                     question_id INTEGER NOT NULL REFERENCES questions(id),
                     created_at  TEXT NOT NULL,
                     UNIQUE (user_id, question_id)
-                );
-                INSERT INTO favorites_new (user_id, question_id, created_at)
-                    SELECT NULL, question_id, created_at FROM favorites;
-                DROP TABLE favorites;
-                ALTER TABLE favorites_new RENAME TO favorites;
-                """
+                )"""
             )
+            conn.execute(
+                """INSERT INTO favorites_new (user_id, question_id, created_at)
+                   SELECT NULL, question_id, created_at FROM favorites"""
+            )
+            conn.execute("DROP TABLE favorites")
+            conn.execute("ALTER TABLE favorites_new RENAME TO favorites")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id)")
         s_cols = {r[1] for r in conn.execute("PRAGMA table_info(sessions)")}
         if "user_id" not in s_cols:
@@ -1129,21 +1133,22 @@ def create_ws_ticket(user_id: int, ticket: str, expires_at: str) -> None:
 
 
 def consume_ws_ticket(ticket: str) -> int | None:
-    """消费一次性票据：校验与删除同事务（保证单次有效），返回 user_id。
+    """消费一次性票据：删除即返回（原子），保证单次有效，返回 user_id。
 
     无效 / 过期 / 已消费返回 None。
+
+    用 `DELETE ... RETURNING` 把"校验 + 删除"合并为一条原子写操作，
+    避免"先 SELECT 再 DELETE"的 TOCTOU 竞态——并发消耗同一票据时只会有
+    一个成功，其余语句命中 0 行（bug #36）。
     """
     now = datetime.now(timezone.utc).isoformat()
     h = _token_hash(ticket)
     with closing(get_conn()) as conn, conn:
         row = conn.execute(
-            "SELECT user_id FROM ws_tickets WHERE ticket_hash = ? AND expires_at > ?",
+            "DELETE FROM ws_tickets WHERE ticket_hash = ? AND expires_at > ? RETURNING user_id",
             (h, now),
         ).fetchone()
-        if row is None:
-            return None
-        conn.execute("DELETE FROM ws_tickets WHERE ticket_hash = ?", (h,))
-        return row["user_id"]
+        return row["user_id"] if row else None
 
 
 # ---------------------------------------------------------------- 定制面试（按用户）

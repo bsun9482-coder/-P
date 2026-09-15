@@ -12,6 +12,19 @@ import requests
 SERVICE_URL = "http://localhost:8765"
 
 
+def _local_session() -> requests.Session:
+    """构造只探本机服务的会话：显式忽略环境代理。
+
+    环境里存在 HTTP(S)_PROXY 时，`requests.get(SERVICE_URL)` 会经代理发出，
+    而代理对无人监听的端口返回 502（合法的 HTTP 响应，不抛连接异常），
+    于是"服务未运行 → skip"的兜底失效，本用例变成红灯。
+    环路地址本就不应经代理，故关闭 trust_env 让连接失败如实抛出。
+    """
+    session = requests.Session()
+    session.trust_env = False
+    return session
+
+
 class LaunchChecks(unittest.TestCase):
     """验证启动脚本关键链路：服务可达 + 数据可用。"""
 
@@ -20,10 +33,11 @@ class LaunchChecks(unittest.TestCase):
 
         服务未运行时自动跳过（先运行 scripts/start.bat 再跑全套验证）。
         """
-        try:
-            r = requests.get(SERVICE_URL + "/health", timeout=3)
-        except requests.RequestException:
-            self.skipTest("服务未运行，跳过（请先运行 scripts/start.bat 或启动统一服务）")
+        with _local_session() as session:
+            try:
+                r = session.get(SERVICE_URL + "/health", timeout=3)
+            except requests.RequestException:
+                self.skipTest("服务未运行，跳过（请先运行 scripts/start.bat 或启动统一服务）")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["status"], "ok")
 

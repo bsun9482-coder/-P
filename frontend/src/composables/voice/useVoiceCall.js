@@ -538,7 +538,7 @@ export function useVoiceCall() {
   }
 
   function startFallbackSpeech(text) {
-    if (V.suppressAudio) return // 已挂断/打断：放弃残留播报（bug #26）
+    if (V.suppressAudio) return // 已挂断/打断：放弃残留播报
     if (!V.speaking) {
       setPhase(PHASE.SPEAKING)
       setStatus('播报中…', true)
@@ -548,7 +548,7 @@ export function useVoiceCall() {
       V.fallbackActive = Math.max(0, V.fallbackActive - 1)
       drainFallback()
     }
-    let guard = false // 幂等护栏：事件与超时只触发一次 doSpeak（bug #20）
+    let guard = false // 幂等护栏：事件与超时只触发一次 doSpeak
     const doSpeak = () => {
       if (guard) return
       guard = true
@@ -701,7 +701,7 @@ export function useVoiceCall() {
     ui.active = true
     setPhase(PHASE.CONNECTING)
     setStatus('正在接通…', true)
-    // 长效令牌不出 Bearer 头：先经 REST 换一次性短时票据，URL 只带 ticket（bug #23）
+    // 长效令牌不出 Bearer 头：先经 REST 换一次性短时票据，URL 只带 ticket
     let ticket
     try {
       ticket = (await authApi.createWsTicket()).ticket
@@ -768,7 +768,7 @@ export function useVoiceCall() {
       clearInterval(V.timerInt)
       V.timerInt = null
     }
-    // 关闭并释放 AudioContext，避免反复进出语音页泄漏到上限后静默无声（bug #13）
+    // 关闭并释放 AudioContext，避免反复进出语音页泄漏到上限后静默无声
     if (V.audioCtx) {
       try {
         V.audioCtx.close()

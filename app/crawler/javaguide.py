@@ -72,7 +72,7 @@ _ANSWER_MAX = 4000
 
 
 def _stable_source_id(topic: str, title: str) -> str:
-    """按标题哈希生成稳定 source_id：页内序号在源页中部插题后会集体偏移（bug #31）。"""
+    """按标题哈希生成稳定 source_id：页内序号在源页中部插题后会集体偏移，故不能用序号。"""
     return f"{topic}:{hashlib.sha1(title.encode('utf-8')).hexdigest()[:12]}"
 
 

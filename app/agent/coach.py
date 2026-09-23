@@ -67,7 +67,7 @@ def _extract_weak_points(report: str) -> str | None:
     """抽取报告"知识薄弱点"段落的清单行（提示词要求以 - 开头）。
 
     标题判定仅在未激活时生效：激活后含"薄弱点"字样的清单行仍是条目，
-    不会被误判成新标题而丢弃（bug #16）。
+    不会被误判成新标题而丢弃。
     """
     out: list[str] = []
     active = False
@@ -89,7 +89,7 @@ def _extract_section_items(report: str, section_key: str) -> list[str]:
 
     标题判定仅在未激活时生效，且要求是"非清单行"（标题样式），
     避免「薄弱点」小节里含 section_key 字样的清单行（如"需要改进×"）被
-    误判为新标题而提前激活，导致改进清单混入薄弱点条目（bug #30）。
+    误判为新标题而提前激活，导致改进清单混入薄弱点条目。
     """
     out: list[str] = []
     active = False
@@ -112,7 +112,7 @@ def _extract_dimensions(report: str) -> list[dict]:
     `- 技术正确性：40` 或 `- 技术正确性 40`，返回 [{"label","score"}]。
 
     章节终止仅认"标题样式行"（【..】/ ## 开头，或非清单前缀且含关键词的行）：
-    维度行本身含"建议"等字样不再提前截断（bug #16）。
+    维度行本身含"建议"等字样不再提前截断。
     """
     dims: list[dict] = []
     started = False
@@ -318,7 +318,7 @@ class InterviewSession:
     def handle(self, user_text: str) -> str:
         """同步入口：接收用户输入，推进状态，返回完整 AI 回复。
 
-        失败时回滚全部状态，与流式入口的"快照→提交→异常回滚"语义一致（bug #35），
+        失败时回滚全部状态，与流式入口的"快照→提交→异常回滚"语义一致，
         避免同步调用方在 LLM 异常后留下"已追加但 turn 未推进"的中间态。
         """
         user_text = _sanitize_input(user_text)
@@ -452,7 +452,7 @@ class InterviewSession:
         # 1) 开场：用户自我介绍后 → 出第一题
         if self.turn == "greeting":
             self.turn = "answering"
-            # 自我介绍进 LLM 上下文：否则"项目深挖"阶段无项目信息可挖（bug #28）
+            # 自我介绍进 LLM 上下文：否则"项目深挖"阶段无项目信息可挖
             self.messages.append({"role": "user", "content": f"（自我介绍）{user_text}"})
             return self._ask_next_question()
 
@@ -511,7 +511,7 @@ class InterviewSession:
     def _handle_mock_stream(self, user_text: str):
         if self.turn == "greeting":
             self.turn = "answering"
-            # 自我介绍进 LLM 上下文：否则"项目深挖"阶段无项目信息可挖（bug #28）
+            # 自我介绍进 LLM 上下文：否则"项目深挖"阶段无项目信息可挖
             self.messages.append({"role": "user", "content": f"（自我介绍）{user_text}"})
             return (yield from self._ask_next_question_stream())
 
@@ -589,7 +589,7 @@ class InterviewSession:
             if self.stage_idx >= self._total_questions():
                 return (yield from self._finish_report_stream())
             # stage_idx 在此自增后出题；若出题流失败，需连同 stage_idx 一起回滚，
-            # 否则下次语音发言会跳过本道题（bug #5）
+            # 否则下次语音发言会跳过本道题
             prev_stage = self.stage_idx
             try:
                 return (yield from self._ask_next_question_stream())
@@ -598,7 +598,7 @@ class InterviewSession:
                 raise
 
         # 4) 报告已出：追加 hint 进上下文与展示历史，否则 session.py 会把
-        # messages[-1]（仍是报告全文）重复追加一遍（bug #27）
+        # messages[-1]（仍是报告全文）重复追加一遍
         self.messages.append({"role": "user", "content": user_text})
         self.messages.append({"role": "assistant", "content": FINISHED_HINT})
         yield FINISHED_HINT
@@ -621,7 +621,7 @@ class InterviewSession:
             stage_name, stage_tags, source, difficulty = prompts.STAGES[self.stage_idx]
             q = _pick_question(stage_tags, source, difficulty, self.asked_ids)
             if q is None:
-                # 与流式入口一致：空题库提示写入 messages，避免历史误记用户原文（bug #6）
+                # 与流式入口一致：空题库提示写入 messages，避免历史误记用户原文
                 self.messages.append({"role": "assistant", "content": EMPTY_BANK_HINT})
                 return EMPTY_BANK_HINT
             diff = q["difficulty"] or "未知"
@@ -658,7 +658,7 @@ class InterviewSession:
             q = _pick_question(stage_tags, source, difficulty, self.asked_ids)
             if q is None:
                 # 空题库提示同样写入 messages，否则 session.py 会把
-                # messages[-1]（用户原文）误当助手回复追加进历史（bug #6）
+                # messages[-1]（用户原文）误当助手回复追加进历史
                 self.messages.append({"role": "assistant", "content": EMPTY_BANK_HINT})
                 self.turn = "answering" if self.custom_questions else self.turn
                 yield EMPTY_BANK_HINT
@@ -667,7 +667,7 @@ class InterviewSession:
         # 先提交"正在出题"状态：题目播报中途被用户打断（barge-in，CancelledError
         # 不走下面的回滚分支）时，下一句会按本题回答处理；
         # 若 LLM 调用真正失败（网络/限流），则回滚全部状态，避免"题目没听到却被
-        # 按本题消费"的会话卡死（bug #4）。快照必须先于 asked_ids.add 等一切变更。
+        # 按本题消费"的会话卡死。快照必须先于 asked_ids.add 等一切变更。
         prev_turn = self.turn
         prev_messages = copy.deepcopy(self.messages)
         prev_asked = set(self.asked_ids)
@@ -728,7 +728,7 @@ class InterviewSession:
     def _finish_report_stream(self):
         # 状态提交与回滚：报告流失败（LLM 重试耗尽是常态事件）若不回滚，
         # "finished=True + 空 assistant 消息" 的损坏状态被语音侧持久化，
-        # 该会话此后永远只回 FINISHED_HINT、报告永久丢失（bug #4）。
+        # 该会话此后永远只回 FINISHED_HINT、报告永久丢失。
         # barge-in（CancelledError）不回滚：保持"正在出报告"语义由用户重新触发。
         prev_turn, prev_finished = self.turn, self.finished
         prev_messages = copy.deepcopy(self.messages)
@@ -770,7 +770,7 @@ class InterviewSession:
 
         复用当前活跃会话行（session_id）：此前 create_session 新建第二条 done 记录，
         与 save_session 更新的 active 行互不相知，导致历史列表每场面试重复两条、
-        复盘数据分裂（bug #3）。仅内存会话（无 session_id，如旧流程）才新建行。
+        复盘数据分裂。仅内存会话（无 session_id，如旧流程）才新建行。
         """
         try:
             sid = self.session_id

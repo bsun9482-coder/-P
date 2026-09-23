@@ -80,7 +80,7 @@ class TtsUnit:
 
     合成（synth）与推送（push）分离，是为了让调用方能对两者分别加锁：
     合成受并发信号量限制、可并行；推送必须按文本顺序串行以保证 sid 顺序
-    （bug #12：此前两者被同一把顺序锁圈住，合成本身被串行化）。
+    （此前两者被同一把顺序锁圈住，合成本身被串行化）。
     """
 
     text: str  # 原始文本（降级时前端据此本地朗读）
@@ -263,7 +263,7 @@ async def _flush(ws: Sender, state: TtsState, data: bytes, text: str) -> None:
 async def _synth_once(state: TtsState, sentence: str) -> tuple[list[bytes], bool]:
     """尝试一次在线合成，返回（按序的音频单元列表, 是否完整成功）。
 
-    只合成、不推送：推送由调用方在取得顺序权后执行（bug #12）。
+    只合成、不推送：推送由调用方在取得顺序权后执行。
     """
     if config.VOICE_TTS == "cosyvoice" and state.voice != "edge":
         blocks: list[bytes] = []
@@ -309,7 +309,7 @@ async def synth(state: TtsState, sentence: str) -> TtsUnit:
 
     连接级失败（尚未出音频）会重试一次；失败/成功都会更新连接级熔断状态。
     与 push() 分离，是为了让调用方把"合成"（可并发）与"推送"（必须按文本
-    顺序串行）分别加锁——此前两者被同一把顺序锁圈住，合成本身被串行化（bug #12）。
+    顺序串行）分别加锁——此前两者被同一把顺序锁圈住，合成本身被串行化。
     """
     if not sentence.strip():
         return TtsUnit(sentence)

@@ -16,7 +16,7 @@ export const useChatStore = defineStore('chat', {
     voiceReady: false,
     customJobTitle: '',
     // 会话代际与流取消：reset/start/load 重建会话后，旧 SSE 流的回调必须失效，
-    // 否则旧流的 delta/报告会污染新会话（bug #7）。AbortController 用 markRaw
+    // 否则旧流的 delta/报告会污染新会话。AbortController 用 markRaw
     // 避免 Pinia 把实例做响应式代理。
     gen: 0,
     abort: null,
@@ -77,7 +77,7 @@ export const useChatStore = defineStore('chat', {
         const stale = () => gen !== this.gen
         this.history.push({ role: 'user', content: message, streaming: false })
         this.history.push({ role: 'assistant', content: '', streaming: true })
-        this.sending = true // 进入即置位：防止 await 前快速双击产生双流（bug #6）
+        this.sending = true // 进入即置位：防止 await 前快速双击产生双流
         chatStream(message, {
           signal: ac.signal,
           onDelta: (d) => {

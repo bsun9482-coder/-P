@@ -27,7 +27,7 @@ def _past() -> str:
 
 
 class TokenHashTests(unittest.TestCase):
-    """bug #25：令牌落库前哈希，明文不持久化；上层 API 仍用明文（对调用方透明）。"""
+    """令牌落库前哈希，明文不持久化；上层 API 仍用明文（对调用方透明）。"""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -76,7 +76,7 @@ class TokenHashTests(unittest.TestCase):
 
 
 class MigrationV8Tests(unittest.TestCase):
-    """bug #25 存量迁移：v7 明文库升级 v8 后旧令牌仍有效（用户不掉线）、幂等可重跑。"""
+    """存量迁移：v7 明文库升级 v8 后旧令牌仍有效（用户不掉线）、幂等可重跑。"""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -165,7 +165,7 @@ class MigrationV8Tests(unittest.TestCase):
 
 
 class WsTicketTests(unittest.TestCase):
-    """bug #23：一次性票据签发（落库哈希）/ 单次消费 / 过期与无效拒绝。"""
+    """一次性票据签发（落库哈希）/ 单次消费 / 过期与无效拒绝。"""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -213,7 +213,7 @@ class WsTicketTests(unittest.TestCase):
 
 
 class WsTicketRestTests(unittest.TestCase):
-    """bug #23：REST 签发端点鉴权与返回契约。"""
+    """REST 签发端点鉴权与返回契约。"""
 
     def setUp(self):
         reset_rate_limits()

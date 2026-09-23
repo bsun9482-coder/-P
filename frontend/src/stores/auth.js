@@ -35,7 +35,7 @@ export const useAuthStore = defineStore('auth', {
         return this.user
       } catch (e) {
         // 仅 401（令牌确实失效）才清除本地凭据；网络抖动/5xx 保留 token，
-        // 避免后端瞬时不可达就把用户登出（bug #19）
+        // 避免后端瞬时不可达就把用户登出
         if (e?.response?.status === 401) this.clearLocal()
         return null
       }

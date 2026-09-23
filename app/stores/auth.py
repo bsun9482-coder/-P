@@ -8,7 +8,7 @@
 - 调用方：REST 用 `Authorization: Bearer <token>`（get_current_user 依赖）；
   WebSocket 无法带请求头，改为先经 REST 签发一次性短时票据
   （POST /api/auth/ws-ticket），WS 连接 URL 只携带 `?ticket=<票据>`，
-  长效令牌不再出现在 URL（bug #23）。
+  长效令牌不再出现在 URL。
 """
 
 import hashlib

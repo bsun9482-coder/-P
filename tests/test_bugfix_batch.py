@@ -42,7 +42,7 @@ def _api_error(status: int) -> APIStatusError:
 
 
 class TokenCleanupTests(unittest.TestCase):
-    """bug #9：签发令牌时惰性清理过期行，auth_tokens 不再只增不减。"""
+    """签发令牌时惰性清理过期行，auth_tokens 不再只增不减。"""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -66,7 +66,7 @@ class TokenCleanupTests(unittest.TestCase):
         db.create_auth_token(uid, "new-tok", future)
         conn = db.get_conn()
         try:
-            # bug #25 后库内只存哈希（token_hash），明文不落库；按行数断言清理效果
+            # 令牌哈希化后库内只存哈希（token_hash），明文不落库；按行数断言清理效果
             tokens = {
                 r["token_hash"]
                 for r in conn.execute("SELECT token_hash FROM auth_tokens WHERE user_id=?", (uid,))
@@ -78,7 +78,7 @@ class TokenCleanupTests(unittest.TestCase):
 
 
 class ChatRateLimitAndLockTests(unittest.TestCase):
-    """bug #10（chat 限流）/#21（并发锁拒绝第二流）/#13（错误不回显）。"""
+    """chat 限流 / 并发锁拒绝第二流 / 错误不回显。"""
 
     def setUp(self):
         _isolate_rate_limit()
@@ -109,7 +109,7 @@ class ChatRateLimitAndLockTests(unittest.TestCase):
         self.assertEqual(blocked.status_code, 429)
 
     def test_second_stream_rejected_while_first_active(self):
-        """bug #21：锁被占用时同用户第二条流直接 429。"""
+        """锁被占用时同用户第二条流直接 429。"""
         from app.routers import session as session_router
 
         uid = db.get_user_by_username("chatuser")["id"]
@@ -125,7 +125,7 @@ class ChatRateLimitAndLockTests(unittest.TestCase):
         self.assertEqual(blocked.status_code, 429)
 
     def test_error_event_hides_internal_details(self):
-        """bug #13：SSE error 事件不含内部异常细节，只发固定文案。"""
+        """SSE error 事件不含内部异常细节，只发固定文案。"""
         with (
             mock.patch(
                 "app.agent.llm.chat_stream",
@@ -143,7 +143,7 @@ class ChatRateLimitAndLockTests(unittest.TestCase):
 
 
 class SecurityHeadersTests(unittest.TestCase):
-    """bug #22：统一安全响应头。"""
+    """统一安全响应头。"""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -163,7 +163,7 @@ class SecurityHeadersTests(unittest.TestCase):
 
 
 class QuestionRowColumnsTests(unittest.TestCase):
-    """bug #17：pick_random_question 返回 source_id/answer，参考答案兜底可达。"""
+    """pick_random_question 返回 source_id/answer，参考答案兜底可达。"""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -190,7 +190,7 @@ class QuestionRowColumnsTests(unittest.TestCase):
 
 
 class ParserHeadingTests(unittest.TestCase):
-    """bug #16：解析器标题判定收紧后的回归。"""
+    """解析器标题判定收紧后的回归。"""
 
     REPORT = (
         "## 【总分】85/100\n"
@@ -237,7 +237,7 @@ class P3TailTests(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def test_foreign_keys_on_and_ghost_favorite_404(self):
-        """bug #24：FK 开启 + 收藏不存在的题目返回 404，不再产生幽灵收藏。"""
+        """FK 开启 + 收藏不存在的题目返回 404，不再产生幽灵收藏。"""
         conn = db.get_conn()
         try:
             self.assertEqual(conn.execute("PRAGMA foreign_keys").fetchone()[0], 1)
@@ -248,14 +248,14 @@ class P3TailTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/favorites", headers=self.hdr).json()["ids"], [])
 
     def test_login_body_length_capped(self):
-        """bug #25a：登录用户名/密码超长 422。"""
+        """登录用户名/密码超长 422。"""
         resp = self.client.post(
             "/api/auth/login", json={"username": "x" * 100, "password": "y" * 200}
         )
         self.assertEqual(resp.status_code, 422)
 
     def test_add_question_tags_sanitized(self):
-        """bug #25b：含逗号/空白的标签被清洗，不污染标签体系。"""
+        """含逗号/空白的标签被清洗，不污染标签体系。"""
         self.client.post(
             "/api/questions",
             json={"title": "测试题", "tags": ["  Redis ", "a,b", "  ", "缓存"]},
@@ -270,7 +270,7 @@ class P3TailTests(unittest.TestCase):
         self.assertNotIn("a,b", names)
 
     def test_nickname_can_be_cleared(self):
-        """bug #26：显式传空昵称可清空；不传 nickname 字段则保持不变。"""
+        """显式传空昵称可清空；不传 nickname 字段则保持不变。"""
         me = self.client.put(
             "/api/auth/me", json={"nickname": "", "persona": ""}, headers=self.hdr
         ).json()
@@ -281,7 +281,7 @@ class P3TailTests(unittest.TestCase):
         self.assertEqual(me2.get("persona"), "严肃")
 
     def test_finished_session_hint_no_report_dup(self):
-        """bug #27：报告出来后再发言，展示与持久化不再重复/覆盖报告。"""
+        """报告出来后再发言，展示与持久化不再重复/覆盖报告。"""
         import app.stores.session_store as session_store
 
         uid = 616161
@@ -301,7 +301,7 @@ class P3TailTests(unittest.TestCase):
         self.assertIn("总分", row["report"], "真报告不应被 hint 覆盖")
 
     def test_greeting_intro_enters_llm_context(self):
-        """bug #28：开场自我介绍进 LLM 上下文。"""
+        """开场自我介绍进 LLM 上下文。"""
         s = InterviewSession("mock")
         with (
             mock.patch(
@@ -315,7 +315,7 @@ class P3TailTests(unittest.TestCase):
         self.assertIn("我叫张三", joined)
 
     def test_stable_source_id(self):
-        """bug #31：javaguide source_id 按标题哈希，不随页内位置偏移。"""
+        """javaguide source_id 按标题哈希，不随页内位置偏移。"""
         from app.crawler.javaguide import _stable_source_id
 
         a = _stable_source_id("topic", "同一道题")
@@ -325,7 +325,7 @@ class P3TailTests(unittest.TestCase):
 
 
 class WalModeTests(unittest.TestCase):
-    """bug #8：init_db 后必须处于 WAL 模式（读写不互斥）。"""
+    """init_db 后必须处于 WAL 模式（读写不互斥）。"""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -347,7 +347,7 @@ class WalModeTests(unittest.TestCase):
 
 
 class HistoryLimitTests(unittest.TestCase):
-    """bug #11：limit 无下界时 SQLite LIMIT -1 等价无限制，可拉全表。"""
+    """limit 无下界时 SQLite LIMIT -1 等价无限制，可拉全表。"""
 
     def setUp(self):
         _isolate_rate_limit()
@@ -387,7 +387,7 @@ class HistoryLimitTests(unittest.TestCase):
 
 
 class LlmRetryScopeTests(unittest.TestCase):
-    """bug #18：4xx 客户端错误立即抛出，瞬时错误才重试。"""
+    """4xx 客户端错误立即抛出，瞬时错误才重试。"""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -442,7 +442,7 @@ class LlmRetryScopeTests(unittest.TestCase):
 
 
 class TagsContractTests(unittest.TestCase):
-    """bug #1 回归：tags 数组查询参数过滤正常（前端 axios 序列化已对齐 tags=a&tags=b）。"""
+    """回归：tags 数组查询参数过滤正常（前端 axios 序列化已对齐 tags=a&tags=b）。"""
 
     def setUp(self):
         _isolate_rate_limit()
@@ -481,7 +481,7 @@ _REPORT_TEXT = "【总分】80/100\n## 知识薄弱点\n- 索引原理\n## 改�
 
 
 class ReportPersistenceTests(unittest.TestCase):
-    """bug #3：报告落库复用活跃会话行，历史列表不再每场面试重复两条。"""
+    """报告落库复用活跃会话行，历史列表不再每场面试重复两条。"""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -522,7 +522,7 @@ class ReportPersistenceTests(unittest.TestCase):
 
 
 class ReportStreamRollbackTests(unittest.TestCase):
-    """bug #4：报告/出题流 LLM 失败 → 状态回滚；barge-in（CancelledError）不回滚。"""
+    """报告/出题流 LLM 失败 → 状态回滚；barge-in（CancelledError）不回滚。"""
 
     def setUp(self):
         self.s = InterviewSession("mock")
@@ -592,7 +592,7 @@ class ReportStreamRollbackTests(unittest.TestCase):
 
 
 class RepairTextTests(unittest.TestCase):
-    """bug #2 存量乱码修复工具：latin-1 误解码的 UTF-8 文本可无损还原。"""
+    """存量乱码修复工具：latin-1 误解码的 UTF-8 文本可无损还原。"""
 
     def test_mojibake_restored(self):
         # 真实故障路径 round-trip：中文 -> mojibake -> repair 还原

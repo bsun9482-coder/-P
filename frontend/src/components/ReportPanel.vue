@@ -31,7 +31,7 @@
       </div>
     </div>
 
-    <!-- 无结构化数据（旧会话）：仅展示报告原文，前端不做二次解析（bug #29） -->
+    <!-- 无结构化数据（旧会话）：仅展示报告原文，前端不做二次解析 -->
     <div v-if="parsed.raw" class="report-raw">{{ report }}</div>
 
     <!-- 维度评分 -->
@@ -110,7 +110,7 @@ const parsed = computed(() => {
       strengths: [],
     }
   }
-  // 无结构化数据：仅展示原文，前端不再复制一份解析正则（AGENTS 纪律，bug #29）
+  // 无结构化数据：仅展示原文，前端不再复制一份解析正则（AGENTS 纪律）
   return { raw: true, score: null, dimensions: [], weakPoints: [], improvements: [] }
 })
 const ringOffset = computed(() => {

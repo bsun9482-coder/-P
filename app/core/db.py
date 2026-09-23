@@ -200,7 +200,7 @@ def get_conn() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout = {config.DB_TIMEOUT_SECONDS * 1000}")
     conn.execute("PRAGMA synchronous = NORMAL")
-    # 外键约束默认关闭，schema 里的 REFERENCES/CASCADE 全部失效（bug #24）
+    # 外键约束默认关闭，schema 里的 REFERENCES/CASCADE 全部失效
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
@@ -219,7 +219,7 @@ def init_db() -> None:
     """建库建表 + 执行迁移（幂等，可反复调用）。"""
     with closing(get_conn()) as conn, conn:
         # WAL 让读写不再互斥：爬虫批量写、语音 WS 写与用户请求读可并发，
-        # 否则默认回滚日志的写锁全库独占，并发时 database is locked（bug #8）
+        # 否则默认回滚日志的写锁全库独占，并发时 database is locked
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
         _migrate(conn)
@@ -290,8 +290,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         f_cols = {r[1] for r in conn.execute("PRAGMA table_info(favorites)")}
         if "user_id" not in f_cols:
             # 重建 favorites 表以支持多用户收藏。不用 executescript（内部会隐式提交，
-            # 破坏外层事务，DROP+RENAME 崩溃中间态不可恢复，藏品会遗留在孤儿表中，
-            # bug #31）；改用逐条 execute 让整个迁移共享同一事务，崩溃可原子回滚。
+            # 破坏外层事务，DROP+RENAME 崩溃中间态不可恢复，藏品会遗留在孤儿表中）；
+            # 改用逐条 execute 让整个迁移共享同一事务，崩溃可原子回滚。
             conn.execute("DROP TABLE IF EXISTS favorites_new")
             conn.execute(
                 """CREATE TABLE favorites_new (
@@ -326,7 +326,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "数据库迁移至版本 7：新增用户/令牌/按用户定制面试表，favorites 与 sessions 支持多用户"
         )
     if version < 8:
-        # 登录令牌改存 SHA-256 哈希（bug #25）：重建 auth_tokens，明文行逐条哈希迁移。
+        # 登录令牌改存 SHA-256 哈希：重建 auth_tokens，明文行逐条哈希迁移。
         # SHA-256 为确定性哈希，迁移后客户端手中的明文令牌在下次请求时被服务端
         # 哈希后照常匹配，存量登录态不失效（用户不掉线）；顺带清理过期行。
         cols = {r[1] for r in conn.execute("PRAGMA table_info(auth_tokens)")}
@@ -773,7 +773,7 @@ def pick_random_question(
     """按条件在 SQL 层随机选题，避免全表捞回内存过滤。
 
     SELECT 需带 source_id/answer：点评环节 _ensure_reference_answer 依赖
-    这两列做"缺答案同步补抓"兜底，漏列会让兜底永不可达（bug #17）。
+    这两列做"缺答案同步补抓"兜底，漏列会让兜底永不可达。
     """
     sql = "SELECT id, title, tags, difficulty, source, source_id, answer FROM questions WHERE 1=1"
     params: list = []
@@ -950,7 +950,7 @@ def list_sessions_by_user(user_id: int, limit: int = 50) -> list[dict]:
     """某用户的面试历史（含进行中与已完成的，按开始时间倒序）。
 
     显式列清单：历史列表不需要 state_json / jd 等大字段，
-    SELECT * 会在 limit 异常放大时把几十 KB/行的数据全部拉回（bug #11）。
+    SELECT * 会在 limit 异常放大时把几十 KB/行的数据全部拉回。
     """
     with closing(get_conn()) as conn:
         return _rows_to_dicts(
@@ -1080,7 +1080,7 @@ def _token_hash(token: str) -> str:
 def create_auth_token(user_id: int, token: str, expires_at: str) -> None:
     """保存登录令牌（落库前哈希，明文不持久化）。
 
-    签发时顺带清理该库全部过期令牌（bug #9：过期行只增不减）。
+    签发时顺带清理该库全部过期令牌（过期行只增不减）。
     """
     now = datetime.now(timezone.utc).isoformat()
     with closing(get_conn()) as conn, conn:
@@ -1139,7 +1139,7 @@ def consume_ws_ticket(ticket: str) -> int | None:
 
     用 `DELETE ... RETURNING` 把"校验 + 删除"合并为一条原子写操作，
     避免"先 SELECT 再 DELETE"的 TOCTOU 竞态——并发消耗同一票据时只会有
-    一个成功，其余语句命中 0 行（bug #36）。
+    一个成功，其余语句命中 0 行。
     """
     now = datetime.now(timezone.utc).isoformat()
     h = _token_hash(ticket)

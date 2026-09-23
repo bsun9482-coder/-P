@@ -139,7 +139,7 @@ def reset_session(user_row=auth.CurrentUser) -> dict:
 @router.get("/session/history")
 def session_history(
     user_row=auth.CurrentUser,
-    # 下界防 LIMIT 负数（SQLite LIMIT -1 等价无限制，bug #11 拉全表），
+    # 下界防 LIMIT 负数（SQLite LIMIT -1 等价无限制，会拉全表），
     # 上界防单请求拉取全量历史（每行含 report 大文本）
     limit: int = Query(50, ge=1, le=200),
 ) -> dict:
@@ -147,9 +147,9 @@ def session_history(
     return {"items": session_store.list_history(user_row["id"], limit=limit)}
 
 
-#: 每用户聊天锁：同一用户同时只允许一条 SSE 流在推进（bug #21：并发请求各自
+#: 每用户聊天锁：同一用户同时只允许一条 SSE 流在推进（并发请求各自
 #: 反序列化独立会话副本、互相覆盖 save_session，丢回合+双份 LLM 计费）。
-#: 用有界字典防止长期运行后无限增长（bug #32）：超限时清理未持有中的锁。
+#: 用有界字典防止长期运行后无限增长：超限时清理未持有中的锁。
 _MAX_CHAT_LOCKS = 2000
 _chat_locks: dict[int, asyncio.Lock] = {}
 
@@ -171,7 +171,7 @@ def _get_chat_lock(user_id: int) -> asyncio.Lock:
 @router.post("/chat")
 async def chat(body: ChatBody, user_row=auth.CurrentUser):
     """SSE 流式对话：推进当前会话（无会话时自动建辅导答疑）。"""
-    # 按用户限流（bug #10）：与语音 WS 共用"对话消息"限流配置，防脚本刷消息烧 LLM 余额
+    # 按用户限流：与语音 WS 共用"对话消息"限流配置，防脚本刷消息烧 LLM 余额
     if not hit(
         f"chat:{user_row['id']}",
         config.VOICE_TEXT_RATE_LIMIT,
@@ -192,7 +192,7 @@ async def chat(body: ChatBody, user_row=auth.CurrentUser):
 
     msg = (body.message or "").strip()
     if not msg:
-        # 纯空白消息不做 LLM 调用，避免白付一次计费（bug #34）
+        # 纯空白消息不做 LLM 调用，避免白付一次计费
         raise HTTPException(status_code=400, detail="消息内容不能为空")
 
     gen = session.handle_stream(msg)
@@ -241,7 +241,7 @@ async def chat(body: ChatBody, user_row=auth.CurrentUser):
                 )
             except asyncio.CancelledError:
                 # 客户端断开：进程级异常（BaseException）不会被上面的 try 吞掉。
-                # 把已生成的部分回复落库，避免整轮回合丢失（bug #10）；
+                # 把已生成的部分回复落库，避免整轮回合丢失；
                 # to_thread 中的同步生成器无法中断，但落库后资源会随生成器自然结束释放。
                 if session.messages and session.messages[-1].get("content", "").strip():
                     session.display_history.append(["assistant", session.messages[-1]["content"]])
@@ -252,7 +252,7 @@ async def chat(body: ChatBody, user_row=auth.CurrentUser):
                 raise
             except Exception:  # noqa: BLE001 - 流式里兜底所有异常并告知前端
                 logger.exception("聊天流式处理异常")
-                # 内部异常细节不回显（bug #13）：与 voice_ws 一致只发固定文案
+                # 内部异常细节不回显：与 voice_ws 一致只发固定文案
                 yield _sse({"type": "error", "message": "生成回复时出错，请稍后再试"})
 
     return StreamingResponse(

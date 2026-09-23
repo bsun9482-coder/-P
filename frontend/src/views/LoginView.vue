@@ -100,7 +100,7 @@ async function onSubmit() {
     ElMessage.warning('请输入用户名')
     return
   }
-  // 与后端 Pydantic 约束对齐（3-32），避免 422 结构错误原文弹出（bug #27）
+  // 与后端 Pydantic 约束对齐（3-32），避免 422 结构错误原文弹出
   if (username.length < 3 || username.length > 32) {
     ElMessage.warning('用户名需 3-32 个字符')
     return
@@ -137,7 +137,7 @@ async function onSubmit() {
 
 <style scoped>
 .login-wrap {
-  min-height: 100vh; /* 旧浏览器回退（bug #31） */
+  min-height: 100vh; /* 旧浏览器回退：不支持 dvh 时的兜底 */
   min-height: 100dvh;
   display: flex;
   align-items: center;

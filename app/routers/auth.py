@@ -17,7 +17,7 @@ class RegisterBody(BaseModel):
 
 
 class LoginBody(BaseModel):
-    # 只限长不限短（老账号兼容），防超大 body 进 pbkdf2/日志（bug #25）
+    # 只限长不限短（老账号兼容），防超大 body 进 pbkdf2/日志
     username: str = Field(max_length=32)
     password: str = Field(max_length=128)
 
@@ -72,7 +72,7 @@ def logout(authorization: str | None = Header(default=None)) -> dict:
 def ws_ticket(
     user_row=auth.CurrentUser, _rate: None = Depends(rate_limit(limit=30, window=60))
 ) -> dict:
-    """签发语音 WS 一次性连接票据（bug #23）。
+    """签发语音 WS 一次性连接票据。
 
     浏览器 new WebSocket() 无法携带请求头，改为前端持 Bearer 令牌先换一张
     短时（WS_TICKET_TTL_SECONDS）一次性票据，WS URL 只出现票据；
@@ -91,7 +91,7 @@ def me(user_row=auth.CurrentUser) -> dict:
 def update_me(body: ProfileBody, user_row=auth.CurrentUser) -> dict:
     """更新昵称/默认人格。
 
-    nickname 显式传入（含空串=清空，回退显示用户名，bug #26）才更新；
+    nickname 显式传入（含空串=清空，回退显示用户名）才更新；
     未传字段保持不动。
     """
     db.update_user_persona(user_row["id"], body.persona)

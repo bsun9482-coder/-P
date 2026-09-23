@@ -36,7 +36,7 @@ class JavaGuideTests(unittest.TestCase):
         # 两个问题被解析；「参考资料」被过滤
         self.assertEqual(len(rows), 2)
         r = rows[0]
-        # bug #31：source_id 改为标题哈希（稳定标识，不随页内位置偏移）
+        # source_id 用标题哈希（稳定标识，不随页内位置偏移）
         self.assertEqual(
             r["source_id"], javaguide._stable_source_id("java-basic-01", "JVM vs JDK vs JRE")
         )

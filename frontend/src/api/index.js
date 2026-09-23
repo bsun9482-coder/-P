@@ -4,7 +4,7 @@ import { getToken, http, readSse, safeText, setToken } from './http'
 /**
  * 解析 SSE 接口错误响应的可读文案。
  * 优先取 JSON 的 detail 字段（FastAPI），否则回退原始文本。
- * 统一前端对后端错误结构的解析，避免把 {"detail": ...} 原文直接抛给用户（bug #29）。
+ * 统一前端对后端错误结构的解析，避免把 {"detail": ...} 原文直接抛给用户。
  */
 async function sseErrorText(res) {
   try {
@@ -25,7 +25,7 @@ export const authApi = {
   logout: () => http.post('/api/auth/logout'),
   me: () => http.get('/api/auth/me'),
   updateMe: (data) => http.put('/api/auth/me', data),
-  // 语音 WS 一次性连接票据：长效令牌不出 Bearer 头，URL 只带短时票据（bug #23）
+  // 语音 WS 一次性连接票据：长效令牌不出 Bearer 头，URL 只带短时票据
   createWsTicket: () => http.post('/api/auth/ws-ticket'),
 }
 
@@ -58,7 +58,7 @@ export async function chatStream(message, handlers = {}) {
     return
   }
   if (!res.ok || !res.body) {
-    // 401：与 REST 拦截器一致，清令牌并跳登录（bug #2），携带来源页便于回跳（bug #28）
+    // 401：与 REST 拦截器一致，清令牌并跳登录，携带来源页便于回跳
     if (res.status === 401) {
       setToken('')
       const p = window.location.pathname
@@ -115,7 +115,7 @@ export const customApi = {
         return
       }
       if (!res.ok || !res.body) {
-        // 401：与 REST 拦截器一致，清令牌并跳登录（bug #2），携带来源页便于回跳（bug #28）
+        // 401：与 REST 拦截器一致，清令牌并跳登录，携带来源页便于回跳
         if (res.status === 401) {
           setToken('')
           const p = window.location.pathname

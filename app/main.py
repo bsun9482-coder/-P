@@ -50,7 +50,7 @@ app = FastAPI(title="面试官小P", lifespan=lifespan)
 
 @app.middleware("http")
 async def security_headers(request, call_next):
-    """统一安全响应头（bug #22）：防点击劫持与 MIME 嗅探。WS 不经此中间件。"""
+    """统一安全响应头：防点击劫持与 MIME 嗅探。WS 不经此中间件。"""
     resp = await call_next(request)
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")

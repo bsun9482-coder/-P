@@ -171,9 +171,9 @@ const filters = reactive({
   favoriteOnly: false,
 })
 const rows = ref([])
-const loaded = ref(false) // 首次加载完成前显示 loading 而非"暂无题目"空态（bug #30）
+const loaded = ref(false) // 首次加载完成前显示 loading 而非"暂无题目"空态
 const loading = ref(false) // 筛选请求进行中：查询按钮转圈，避免重复点击
-const error = ref('') // 加载失败提示；非空时列表区显示错误态 + 重试（bug #30 补）
+const error = ref('') // 加载失败提示；非空时列表区显示错误态 + 重试
 const favoriteIds = ref(new Set())
 let loadSeq = 0 // 请求代际号：丢弃过期响应，防止慢响应覆盖新筛选结果（查询竞态）
 const selected = ref([])
@@ -360,7 +360,7 @@ async function submitImport() {
   flex: 1;
   overflow-y: auto;
   max-height: 52vh;
-  min-height: 160px; /* 首次加载中保持高度，loading 遮罩可见（bug #30） */
+  min-height: 160px; /* 首次加载中保持高度，loading 遮罩可见 */
   padding-right: 4px;
 }
 /* 骨架屏：题库加载占位 */

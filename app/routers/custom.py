@@ -84,7 +84,7 @@ async def generate(body: CustomBody, user_row=auth.CurrentUser):
             qs, meta = task.result()
         except Exception:  # noqa: BLE001
             logger.exception("定制面试生成失败")
-            # 内部异常细节（上游端点/配额/路径等）不回显给客户端（bug #13）
+            # 内部异常细节（上游端点/配额/路径等）不回显给客户端
             yield _sse({"type": "error", "message": "生成失败，请稍后重试"})
             return
 

@@ -91,7 +91,7 @@ def add_question(body: AddQuestionBody, user_row=auth.CurrentUser) -> dict:
     if not title:
         raise HTTPException(status_code=400, detail="题干不能为空")
     # 标签清洗：去空白、剔除含逗号的条目（tags 列按逗号分隔，混入会污染筛选）、
-    # 限制条数与单条长度（bug #25）
+    # 限制条数与单条长度，避免单次响应过大
     tags = [t.strip() for t in (body.tags or []) if t.strip() and "," not in t][:10]
     db.upsert_question(
         source="custom",
@@ -111,7 +111,7 @@ def import_csv(body: dict, user_row=auth.CurrentUser) -> dict:
     if not content.strip():
         raise HTTPException(status_code=400, detail="请粘贴 CSV 内容")
     if len(content) > 2_000_000:
-        # 超大请求直接拒绝，防止一次性占用过多内存并让 DB 膨胀（bug #33）
+        # 超大请求直接拒绝，防止一次性占用过多内存并让 DB 膨胀
         raise HTTPException(status_code=413, detail="导入内容过大，请分批导入（最多 2MB）")
     stats = importer.import_questions_csv(content)
     if not stats.get("rows"):
@@ -130,7 +130,7 @@ def favorites(user_row=auth.CurrentUser) -> dict:
 
 @router.post("/favorites/{qid}")
 def add_favorite(qid: int, user_row=auth.CurrentUser) -> dict:
-    # 题目存在性校验：FK 约束开启前已有的防御层，防止幽灵收藏（bug #24）
+    # 题目存在性校验：FK 约束开启前已有的防御层，防止幽灵收藏
     if db.get_question_by_id(qid) is None:
         raise HTTPException(status_code=404, detail="题目不存在")
     db.add_favorite(qid, user_id=user_row["id"])

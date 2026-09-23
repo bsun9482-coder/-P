@@ -37,7 +37,7 @@ def _test_token() -> str:
 async def _synthesize(ws, state, sentence):
     """测试便捷封装：合成 + 按序推送（等价于拆分前的单步 synthesize）。
 
-    生产路径把两步分开，是为了让合成可并发、推送按序（bug #12）；
+    生产路径把两步分开，是为了让合成可并发、推送按序；
     单连接的单元测试无并发需求，直接串联即可。
     """
     unit = await _synth(state, sentence)
@@ -97,7 +97,7 @@ class VoiceServerTests(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def _ws_url(self, client) -> str:
-        """经 REST 用 Bearer 令牌换取一次性票据，返回新协议 WS 连接地址（bug #23）。
+        """经 REST 用 Bearer 令牌换取一次性票据，返回新协议 WS 连接地址。
 
         每次调用签发新票据（单次消费），多连接场景各自独立取票。
         """
@@ -106,7 +106,7 @@ class VoiceServerTests(unittest.TestCase):
         return f"/ws/voice?ticket={r.json()['ticket']}"
 
     def test_old_token_query_param_rejected(self):
-        """回归断言：旧协议 ?token= 携带有效令牌也必须被拒（bug #23 防旧协议回归）。"""
+        """回归断言：旧协议 ?token= 携带有效令牌也必须被拒（防旧协议回归）。"""
         with (
             TestClient(app) as client,
             self.assertRaises(WebSocketDisconnect),
@@ -118,7 +118,7 @@ class VoiceServerTests(unittest.TestCase):
         s = InterviewSession("coach")
         s2 = maybe_switch_to_mock(s, "我想开始面试")
         self.assertEqual(s2.mode, "mock")
-        # bug #15 修复后：恢复的活跃会话（多条消息）说"开始面试"也应切换，
+        # 恢复的活跃会话（多条消息）说"开始面试"也应切换，
         # 与 REOPEN_GREETING 的承诺一致
         s = InterviewSession("coach")
         s.messages.append({"role": "user", "content": "之前问过"})
@@ -325,7 +325,7 @@ class VoiceServerTests(unittest.TestCase):
         "app.agent.llm.chat_stream", return_value=iter(["第一句。第二句。第三句。第四句。"])
     )
     def test_synth_runs_concurrently(self, mock_chat_stream, mock_fts):
-        """bug #12 回归：合成阶段必须并发（受 sem 限流），不能被推送顺序锁串行化。
+        """回归：合成阶段必须并发（受 sem 限流），不能被推送顺序锁串行化。
 
         修复前 _await_turn 位于合成之前，同一时刻只有 1 段在合成（sem 形同虚设）；
         修复后 sem=3 时应有 ≥2 段同时在合成。
@@ -755,7 +755,7 @@ class VoiceServerTests(unittest.TestCase):
             mock.patch("app.voice_ws.DashScopeASR", FakeASR),
             mock.patch("app.voice_ws.ASR_RETRY_DELAY", 0.05),
             # 必须显式声明"识别服务已配置"：未配置 Key 时服务端判定为配置类故障、
-            # 直接终态返回且不启动监督重连（bug #23），这些用例就会永远等不到
+            # 直接终态返回且不启动监督重连，这些用例就会永远等不到
             # asr_ready。不能依赖真实 DASHSCOPE_API_KEY——没有 .env 的 CI 环境
             # 会让 ws.receive_text() 无限阻塞，把 job 挂到超时（曾挂满 6 小时）。
             mock.patch("app.core.config.DASHSCOPE_API_KEY", "sk-test"),
@@ -804,7 +804,7 @@ class VoiceServerTests(unittest.TestCase):
             mock.patch("app.voice_ws.DashScopeASR", FakeASR),
             mock.patch("app.voice_ws.ASR_RETRY_DELAY", 0.05),
             # 必须显式声明"识别服务已配置"：未配置 Key 时服务端判定为配置类故障、
-            # 直接终态返回且不启动监督重连（bug #23），这些用例就会永远等不到
+            # 直接终态返回且不启动监督重连，这些用例就会永远等不到
             # asr_ready。不能依赖真实 DASHSCOPE_API_KEY——没有 .env 的 CI 环境
             # 会让 ws.receive_text() 无限阻塞，把 job 挂到超时（曾挂满 6 小时）。
             mock.patch("app.core.config.DASHSCOPE_API_KEY", "sk-test"),

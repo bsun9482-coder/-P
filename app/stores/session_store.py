@@ -67,7 +67,7 @@ def save_session(user_id: int, session: InterviewSession) -> None:
         from app.agent.coach import _extract_weak_points, _report_score
 
         # 报告取"最后一条非 FINISHED_HINT 的 assistant 消息"：报告出来后再发言，
-        # messages[-1] 是 hint，直接取会覆盖掉真报告（bug #27）
+        # messages[-1] 是 hint，直接取会覆盖掉真报告
         report_msg = next(
             (
                 m
@@ -84,7 +84,7 @@ def save_session(user_id: int, session: InterviewSession) -> None:
             score=score,
             report=report_msg["content"] if report_msg else None,
             weak_points=weak,
-            status="done",  # 完成的会话归档，否则 active 行永不完结（bug #3）
+            status="done",  # 完成的会话归档，否则 active 行永不完结
         )
     else:
         db.update_session_state(sid, state)

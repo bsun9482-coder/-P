@@ -4,7 +4,7 @@
 文本限流）与回复生成（LLM 流式 + TTS 推送，支持 barge-in 取消）。
 
 协议（URL 需 ?ticket=<一次性票据>，经 REST POST /api/auth/ws-ticket 用
-Bearer 令牌换取；长效令牌不出请求头，bug #23）：
+Bearer 令牌换取；长效令牌不出请求头）：
   客户端 -> 服务端：
     文本帧 {"type":"text","content":...} / {"type":"stop"} /
             {"type":"asr_start","sample_rate":N}
@@ -67,7 +67,7 @@ REOPEN_GREETING = (
 def maybe_switch_to_mock(session: InterviewSession, text: str) -> InterviewSession:
     """用户说"开始面试/模拟面试"时，从答疑模式切换到模拟面试模式。
 
-    不限首条消息（bug #15）：恢复的活跃答疑会话必然已有多条消息，而
+    不限首条消息：恢复的活跃答疑会话必然已有多条消息，而
     REOPEN_GREETING 明确承诺"可以说'开始面试'开始新模拟面试"；
     误切防护由 _MOCK_START_RE 保证（提问式如"模拟面试是什么"不命中）。
     """
@@ -138,7 +138,7 @@ class VoiceConnection:
             self._cleanup()
 
     async def _register(self) -> None:
-        """单用户互踢：先原子登记自己，再关闭同账号旧连接（bug #14）。
+        """单用户互踢：先原子登记自己，再关闭同账号旧连接。
 
         旧顺序（先查旧→await close→再登记）存在挂起间隙：两个新连接同时接通时
         后恢复者覆盖先恢复者，先恢复的连接变成活跃但脱管，绕过互踢常驻在线。
@@ -200,7 +200,7 @@ class VoiceConnection:
             # 后续断线由 _asr_supervisor 自动重连，无需前端反复重发
             if self.asr is None and (self.asr_retry is None or self.asr_retry.done()):
                 sr = int(msg.get("sample_rate") or config.ASR_SAMPLE_RATE)
-                # 配置类故障（缺依赖/缺 Key）重试也无效，直接告知终态、不启动重连（bug #23）
+                # 配置类故障（缺依赖/缺 Key）重试也无效，直接告知终态、不启动重连
                 if asr_permanently_unavailable():
                     await self._send(
                         {
@@ -266,7 +266,7 @@ class VoiceConnection:
         def _on_produce_done(t, s=session):
             # 被打断（barge-in）或生成异常的任务不落库：前者的半截回复由下一轮
             # 正常完成的任务一并持久化；后者生成器已回滚，保留上一轮已存状态，
-            # 避免"finished=True + 空 assistant 消息"的损坏状态出库（bug #4）
+            # 避免"finished=True + 空 assistant 消息"的损坏状态出库
             if t.cancelled() or t.exception() is not None:
                 return
             # 定制面试结束（输出总结报告）后清除待执行状态，避免下次接通重复同一套题
@@ -336,7 +336,7 @@ class VoiceConnection:
             await asyncio.sleep(delay)
             if self.asr_stopping:
                 return
-            # 配置类故障（缺依赖/缺 Key）重试也无效，停止空转并告知终态（bug #23）
+            # 配置类故障（缺依赖/缺 Key）重试也无效，停止空转并告知终态
             if asr_permanently_unavailable():
                 await self._send(
                     {
@@ -355,7 +355,7 @@ class VoiceConnection:
 @router.websocket("/ws/voice")
 async def voice(ws: WebSocket) -> None:
     # 多用户认证：浏览器 WebSocket 无法携带请求头，URL 只携带一次性短时票据
-    # （消费即删除，单次有效）；长效登录令牌不再出现在 URL（bug #23）
+    # （消费即删除，单次有效）；长效登录令牌不再出现在 URL
     user = auth.resolve_ws_ticket(ws.query_params.get("ticket"))
     if user is None:
         await ws.close(code=4401, reason="未登录或登录已过期")
@@ -383,7 +383,7 @@ async def _produce(ws: WebSocket, session: InterviewSession, text: str) -> None:
     tts_tasks: list[asyncio.Task] = []
     sem = asyncio.Semaphore(tts.TTS_MAX_CONCURRENCY)
     # 语音回合也要维护共享文字历史，否则 REST 侧 history_for_display 优先读
-    # display_history 时，语音回合会从文字历史中永久缺失（bug #7）
+    # display_history 时，语音回合会从文字历史中永久缺失
     session.display_history.append(["user", text])
 
     # 推送串行化：并发合成的任务按"创建顺序"依次推送，保证 sid 分配顺序 ==
@@ -416,7 +416,7 @@ async def _produce(ws: WebSocket, session: InterviewSession, text: str) -> None:
     async def _tts(chunk: str, slot: int) -> None:
         """合成一段（约 2-3 句）并按序推送。
 
-        两个阶段的锁粒度必须分开（bug #12）：
+        两个阶段的锁粒度必须分开：
         - 合成受 sem 限流，**可并发**（CosyVoice 单段要 4-6 秒，串行会慢到不可用）；
         - 推送受 _await_turn 顺序锁保护，保证 sid 分配顺序 == 音频内容顺序。
         此前顺序锁套在合成之外，把合成本身也一起串行化了，sem 形同虚设。
@@ -472,7 +472,7 @@ async def _produce(ws: WebSocket, session: InterviewSession, text: str) -> None:
         _flush_tts()
         if tts_tasks:
             await asyncio.gather(*tts_tasks)
-        # 助手回复补进共享文字历史（与 REST chat 一致，刷新后文字版能看到语音回合，bug #7）
+        # 助手回复补进共享文字历史（与 REST chat 一致，刷新后文字版能看到语音回合）
         if session.messages and session.messages[-1].get("role") == "assistant":
             session.display_history.append(["assistant", session.messages[-1]["content"]])
         await ws.send_text(json.dumps({"type": "done"}))

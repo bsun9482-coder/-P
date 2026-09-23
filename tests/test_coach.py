@@ -41,7 +41,7 @@ def test_parse_report_dimensions_scoped_to_score_section():
 
 
 def test_extract_section_does_not_activate_on_keyword_in_list_item():
-    """薄弱点条目含"改进"字样时，不得误激活"改进建议"章节（bug #30）。"""
+    """薄弱点条目含"改进"字样时，不得误激活"改进建议"章节。"""
     report = (
         "【总分】78/100\n"
         "- 技术正确性：32\n"

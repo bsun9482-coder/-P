@@ -383,10 +383,10 @@ async function cancelVoice() {
 
 async function onCommand(cmd) {
   if (cmd === 'logout') {
-    // 先中止进行中的 SSE 流，避免后端继续生成、聊天锁被占用（bug #15）
+    // 先中止进行中的 SSE 流，避免后端继续生成、聊天锁被占用
     chat._abortStream()
     await auth.logout()
-    // 重置聊天状态：否则下一账号登录首帧会闪现上一账号的对话/报告（bug #20）
+    // 重置聊天状态：否则下一账号登录首帧会闪现上一账号的对话/报告
     chat.$reset()
     router.push('/login')
   } else if (cmd === 'profile') {
@@ -397,7 +397,7 @@ async function onCommand(cmd) {
 }
 
 async function saveProfile() {
-  // 昵称超长直接在前端拦截，避免依赖后端 422（bug #27）
+  // 昵称超长直接在前端拦截，避免依赖后端 422
   if (profile.nickname && profile.nickname.length > 32) {
     ElMessage.warning('昵称最多 32 个字符')
     return
@@ -422,7 +422,7 @@ async function saveProfile() {
 .chat-page {
   display: flex;
   flex-direction: column;
-  height: 100vh; /* 旧浏览器回退（Safari <15.4 不支持 dvh，bug #31） */
+  height: 100vh; /* 旧浏览器回退（Safari <15.4 不支持 dvh） */
   height: 100dvh;
   max-width: 1180px;
   margin: 0 auto;
@@ -578,7 +578,7 @@ async function saveProfile() {
   .chat-side {
     display: none;
   }
-  /* 窄屏抽屉：经 header 的"历史"按钮拉出（bug #30） */
+  /* 窄屏抽屉：经 header 的"历史"按钮拉出 */
   .chat-side.open {
     display: flex;
     position: fixed;

@@ -10,7 +10,6 @@ import logging
 import random
 import time
 
-from app.core import config
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -18,6 +17,8 @@ from openai import (
     OpenAI,
     RateLimitError,
 )
+
+from app.core import config
 
 logger = logging.getLogger("interview_coach.llm")
 

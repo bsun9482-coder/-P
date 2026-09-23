@@ -34,7 +34,8 @@ CRAWL_PAGES_PER_CATEGORY = int(os.getenv("CRAWL_PAGES_PER_CATEGORY", "15"))
 CRAWL_REQUEST_DELAY = float(os.getenv("CRAWL_REQUEST_DELAY", "0.3"))
 CRAWL_WORKERS = int(os.getenv("CRAWL_WORKERS", "3"))
 LEETCODE_CACHE_HOURS = int(os.getenv("LEETCODE_CACHE_HOURS", "72"))
-# 力扣算法题默认关闭抓取（算法题已从题库移除）；需要时置 CRAWL_LEETCODE=1 开启
+# 力扣（算法题）默认不抓取：算法题仍属模拟面试第 2 阶段，只是抓取端默认关闭，
+# 需要时置 CRAWL_LEETCODE=1 开启（开启后才有 算法-* 标签的题入库）
 CRAWL_LEETCODE = os.getenv("CRAWL_LEETCODE", "0").strip().lower() in ("1", "true", "yes")
 
 # ---- 懒加载补抓（定制面试零命中时按需抓取）----
@@ -84,9 +85,6 @@ COSYVOICE_FORMAT = os.getenv("COSYVOICE_FORMAT", "mp3").strip().lower()
 COSYVOICE_SAMPLE_RATE = int(os.getenv("COSYVOICE_SAMPLE_RATE", "24000"))
 COSYVOICE_RATE = float(os.getenv("COSYVOICE_RATE", "1.0"))
 COSYVOICE_PITCH = float(os.getenv("COSYVOICE_PITCH", "1.0"))
-
-# ---- Web 文字版入口（语音通话页"返回文字版"链接用）----
-WEB_URL = os.getenv("WEB_URL", "http://localhost:8501").strip().rstrip("/")
 
 # ---- 统一 Web 服务（Vue3 前端 + REST + 语音，单端口）----
 # 多用户改造后 Streamlit 退役，FastAPI 同时托管静态前端与所有 API。

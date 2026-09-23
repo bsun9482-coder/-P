@@ -26,7 +26,7 @@ SCHEMA_VERSION = 8
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS questions (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    source        TEXT NOT NULL,              -- 来源标识：mianshiya / leetcode / nowcoder / ...
+    source        TEXT NOT NULL,              -- 来源标识：mianshiya / javaguide / leetcode / custom
     source_id     TEXT,                       -- 源站题号/页面ID（便于反查）
     title         TEXT NOT NULL,              -- 题干（短问题）
     content       TEXT,                       -- 详细题干/描述

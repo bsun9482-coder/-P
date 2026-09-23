@@ -8,7 +8,7 @@
 import argparse
 
 from app.core import config
-from app.crawler import javaguide, mianshiya, nowcoder
+from app.crawler import javaguide, mianshiya
 
 
 def build_adapters() -> list:
@@ -16,9 +16,9 @@ def build_adapters() -> list:
     adapters = [
         mianshiya.MianShiYaAdapter(),
         javaguide.JavaGuideAdapter(),
-        nowcoder.NowCoderAdapter(),  # 占位，暂返回空
     ]
-    # 力扣算法题默认关闭抓取（算法题已从题库移除）；需要时置 CRAWL_LEETCODE=1 开启
+    # 力扣（算法题）默认不抓取：算法题仍属模拟面试第 2 阶段，只是抓取端默认关闭，
+    # 需要时置 CRAWL_LEETCODE=1 开启（开启后才有 算法-* 标签的题入库）
     if config.CRAWL_LEETCODE:
         from app.crawler import leetcode
 

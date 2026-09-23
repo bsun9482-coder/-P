@@ -25,7 +25,6 @@ router = APIRouter(prefix="/api", tags=["questions"])
 SOURCE_LABELS = {
     "mianshiya": "面试鸭",
     "leetcode": "LeetCode",
-    "nowcoder": "牛客",
     "custom": "自定义",
 }
 

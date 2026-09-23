@@ -33,17 +33,15 @@ dev = [
 xiaop-voice = "app.main:main"
 xiaop-crawl = "app.crawler.run:main"
 
-[tool.setuptools]
-packages = [
-    "app",
-    "app.agent",
-    "app.crawler",
-    "app.core",
-    "app.services",
-    "app.stores",
-    "app.routers",
-    "app.ui",
-]
+[tool.setuptools.packages.find]
+# 自动收集 app 及其子包，避免新增子包时漏登记（漏登记只会让装出来的包缺文件，极难查）。
+# namespaces = false：只认带 __init__.py 的真包，不把纯数据目录（app/ui/assets）当命名空间包。
+include = ["app", "app.*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+# 头像不是 .py，自动收集带不上，必须显式声明（app/ui/assets 是运行时 /assets 的挂载源）
+app = ["ui/assets/*.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

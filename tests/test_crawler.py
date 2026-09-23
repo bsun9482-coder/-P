@@ -179,16 +179,24 @@ class RunAdapterTests(unittest.TestCase):
     def test_crawl_all_passes_limit(self):
         m1 = mock.MagicMock(return_value={"source": "mianshiya", "new": 1})
         m2 = mock.MagicMock(return_value={"source": "javaguide", "new": 1})
-        m3 = mock.MagicMock(return_value={"source": "nowcoder", "new": 0})
         with (
             mock.patch.object(run.mianshiya.MianShiYaAdapter, "fetch_and_store", m1),
             mock.patch.object(run.javaguide.JavaGuideAdapter, "fetch_and_store", m2),
-            mock.patch.object(run.nowcoder.NowCoderAdapter, "fetch_and_store", m3),
         ):
             stats = run.crawl_all(limit_per_source=3)
-        self.assertEqual(len(stats), 3)
-        for m in (m1, m2, m3):
+        self.assertEqual(len(stats), 2)
+        for m in (m1, m2):
             m.assert_called_once_with(limit=3)
+
+    def test_default_registry_has_no_stub_sources(self):
+        """默认注册的数据源必须真能抓取（不再挂空壳占位适配器）。"""
+        self.assertEqual([a.name for a in run.build_adapters()], ["mianshiya", "javaguide"])
+
+    def test_leetcode_is_opt_in(self):
+        """CRAWL_LEETCODE=1 时力扣插到第 2 位（README 承诺的开关行为）。"""
+        with mock.patch.object(run.config, "CRAWL_LEETCODE", True):
+            names = [a.name for a in run.build_adapters()]
+        self.assertEqual(names, ["mianshiya", "leetcode", "javaguide"])
 
 
 if __name__ == "__main__":

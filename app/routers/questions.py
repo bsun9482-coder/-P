@@ -10,6 +10,13 @@ from pydantic import BaseModel, Field
 
 import app.core.db as db
 import app.services.importer as importer
+from app.routers.schemas import (
+    FavoriteIdsOut,
+    ImportStatsOut,
+    OkOut,
+    QuestionListOut,
+    QuestionMetaOut,
+)
 from app.stores import auth
 
 router = APIRouter(prefix="/api", tags=["questions"])
@@ -56,7 +63,7 @@ def browse(
     favorite_only: bool = False,
     tags: Annotated[list[str] | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
-) -> dict:
+) -> QuestionListOut:
     """题库浏览/检索，返回题目列表与当前用户收藏 id 集合。"""
     rows = db.browse_questions(
         keyword=keyword.strip() or None,
@@ -73,7 +80,7 @@ def browse(
 
 
 @router.get("/questions/meta")
-def question_meta(user_row=auth.CurrentUser) -> dict:
+def question_meta(user_row=auth.CurrentUser) -> QuestionMetaOut:
     """题库筛选元数据：来源（含计数）、公司列表、标签列表。"""
     srcs = [
         {"key": r["source"], "label": SOURCE_LABELS.get(r["source"], r["source"]), "count": r["n"]}
@@ -85,7 +92,7 @@ def question_meta(user_row=auth.CurrentUser) -> dict:
 
 
 @router.post("/questions")
-def add_question(body: AddQuestionBody, user_row=auth.CurrentUser) -> dict:
+def add_question(body: AddQuestionBody, user_row=auth.CurrentUser) -> OkOut:
     """添加一道自定义题（进入共享题库）。"""
     title = body.title.strip()
     if not title:
@@ -105,7 +112,7 @@ def add_question(body: AddQuestionBody, user_row=auth.CurrentUser) -> dict:
 
 
 @router.post("/questions/import")
-def import_csv(body: dict, user_row=auth.CurrentUser) -> dict:
+def import_csv(body: dict, user_row=auth.CurrentUser) -> ImportStatsOut:
     """批量导入自定义题（CSV 文本）。"""
     content = (body or {}).get("content") or ""
     if not content.strip():
@@ -123,13 +130,13 @@ def import_csv(body: dict, user_row=auth.CurrentUser) -> dict:
 
 
 @router.get("/favorites")
-def favorites(user_row=auth.CurrentUser) -> dict:
+def favorites(user_row=auth.CurrentUser) -> FavoriteIdsOut:
     """当前用户收藏的题目 id 列表。"""
     return {"ids": sorted(db.list_favorite_ids(user_row["id"]))}
 
 
 @router.post("/favorites/{qid}")
-def add_favorite(qid: int, user_row=auth.CurrentUser) -> dict:
+def add_favorite(qid: int, user_row=auth.CurrentUser) -> OkOut:
     # 题目存在性校验：FK 约束开启前已有的防御层，防止幽灵收藏
     if db.get_question_by_id(qid) is None:
         raise HTTPException(status_code=404, detail="题目不存在")
@@ -138,6 +145,6 @@ def add_favorite(qid: int, user_row=auth.CurrentUser) -> dict:
 
 
 @router.delete("/favorites/{qid}")
-def remove_favorite(qid: int, user_row=auth.CurrentUser) -> dict:
+def remove_favorite(qid: int, user_row=auth.CurrentUser) -> OkOut:
     db.remove_favorite(qid, user_id=user_row["id"])
     return {"ok": True}

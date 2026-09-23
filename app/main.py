@@ -29,6 +29,7 @@ from app.routers import auth as auth_api
 from app.routers import custom as custom_api
 from app.routers import questions as questions_api
 from app.routers import session as session_api
+from app.routers.schemas import HealthOut, VoiceConfigOut
 from app.voice_ws import router as voice_ws_router
 
 logger = logging.getLogger("interview_coach.main")
@@ -72,7 +73,7 @@ app.mount(
 
 
 @app.get("/health")
-async def health() -> dict:
+async def health() -> HealthOut:
     """就绪探针：验证数据库可连接、schema 已初始化且版本匹配，否则返回 503。"""
     try:
         with closing(db.get_conn()) as conn:
@@ -91,7 +92,7 @@ async def health() -> dict:
 
 
 @app.get("/api/config/voice")
-async def voice_config() -> dict:
+async def voice_config() -> VoiceConfigOut:
     """前端语音页所需运行时配置（VAD 阈值等，替代旧 HTML 模板替换注入）。"""
     return {
         "vad_threshold": config.VOICE_VAD_THRESHOLD,

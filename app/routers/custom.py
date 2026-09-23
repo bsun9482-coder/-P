@@ -18,6 +18,7 @@ import app.stores.session_store as session_store
 import app.stores.voice_store as voice_store
 from app.agent.coach import InterviewSession
 from app.agent.customizer import generate_interview_questions_with_meta
+from app.routers.schemas import CustomStatusOut, OkOut
 from app.stores import auth
 
 logger = logging.getLogger("interview_coach.api.custom")
@@ -51,7 +52,8 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-@router.post("/generate")
+#: 响应为 SSE 进度事件流（非 JSON），故声明 response_class 让 OpenAPI 标注正确媒体类型
+@router.post("/generate", response_class=StreamingResponse)
 async def generate(body: CustomBody, user_row=auth.CurrentUser):
     """按岗位/JD 生成定制面试题，并直接进入该定制面试会话。"""
     job_title = body.job_title.strip()
@@ -139,7 +141,7 @@ async def generate(body: CustomBody, user_row=auth.CurrentUser):
 
 
 @router.get("/status")
-def custom_status(user_row=auth.CurrentUser) -> dict:
+def custom_status(user_row=auth.CurrentUser) -> CustomStatusOut:
     """该用户是否有待执行的语音定制面试（语音页徽标/提示用）。"""
     custom = voice_store.load_custom_interview(user_row["id"])
     return {
@@ -149,7 +151,7 @@ def custom_status(user_row=auth.CurrentUser) -> dict:
 
 
 @router.delete("")
-def clear_custom(user_row=auth.CurrentUser) -> dict:
+def clear_custom(user_row=auth.CurrentUser) -> OkOut:
     """清除该用户的语音定制面试。"""
     voice_store.clear_custom_interview(user_row["id"])
     return {"ok": True}

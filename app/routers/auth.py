@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 import app.core.db as db
 from app.core.ratelimit import rate_limit
+from app.routers.schemas import OkOut, PublicUserOut, TokenOut, WsTicketOut
 from app.stores import auth
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -33,7 +34,7 @@ def _token_payload(user_row) -> dict:
 
 
 @router.post("/register")
-def register(body: RegisterBody, _rate: None = Depends(rate_limit(limit=5, window=60))) -> dict:
+def register(body: RegisterBody, _rate: None = Depends(rate_limit(limit=5, window=60))) -> TokenOut:
     """注册并自动登录。"""
     username = body.username.strip()
     if not username:
@@ -49,7 +50,7 @@ def register(body: RegisterBody, _rate: None = Depends(rate_limit(limit=5, windo
 
 
 @router.post("/login")
-def login(body: LoginBody, _rate: None = Depends(rate_limit(limit=10, window=60))) -> dict:
+def login(body: LoginBody, _rate: None = Depends(rate_limit(limit=10, window=60))) -> TokenOut:
     """登录，返回令牌与用户信息。"""
     user = db.get_user_by_username(body.username.strip())
     if user is None or not auth.verify_password(body.password, user["password_hash"]):
@@ -59,7 +60,7 @@ def login(body: LoginBody, _rate: None = Depends(rate_limit(limit=10, window=60)
 
 
 @router.post("/logout")
-def logout(authorization: str | None = Header(default=None)) -> dict:
+def logout(authorization: str | None = Header(default=None)) -> OkOut:
     """注销当前令牌（读取请求头 Bearer 串）。"""
     if authorization:
         scheme, _, token = authorization.partition(" ")
@@ -71,7 +72,7 @@ def logout(authorization: str | None = Header(default=None)) -> dict:
 @router.post("/ws-ticket")
 def ws_ticket(
     user_row=auth.CurrentUser, _rate: None = Depends(rate_limit(limit=30, window=60))
-) -> dict:
+) -> WsTicketOut:
     """签发语音 WS 一次性连接票据。
 
     浏览器 new WebSocket() 无法携带请求头，改为前端持 Bearer 令牌先换一张
@@ -82,13 +83,13 @@ def ws_ticket(
 
 
 @router.get("/me")
-def me(user_row=auth.CurrentUser) -> dict:
+def me(user_row=auth.CurrentUser) -> PublicUserOut:
     """返回当前登录用户信息。"""
     return auth.public_user(user_row)
 
 
 @router.put("/me")
-def update_me(body: ProfileBody, user_row=auth.CurrentUser) -> dict:
+def update_me(body: ProfileBody, user_row=auth.CurrentUser) -> PublicUserOut:
     """更新昵称/默认人格。
 
     nickname 显式传入（含空串=清空，回退显示用户名）才更新；

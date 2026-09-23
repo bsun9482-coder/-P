@@ -21,6 +21,12 @@ import app.stores.session_store as session_store
 from app.agent.coach import InterviewSession, parse_report
 from app.core import config
 from app.core.ratelimit import hit
+from app.routers.schemas import (
+    HistoryListOut,
+    OkOut,
+    SessionStartOut,
+    SessionStateOut,
+)
 from app.stores import auth
 
 logger = logging.getLogger("interview_coach.api.session")
@@ -86,7 +92,7 @@ def _new_session(body: StartBody, user_row) -> InterviewSession:
 
 
 @router.post("/session/start")
-def start_session(body: StartBody, user_row=auth.CurrentUser) -> dict:
+def start_session(body: StartBody, user_row=auth.CurrentUser) -> SessionStartOut:
     """归档旧会话并启动新会话（模拟面试 / 辅导答疑 / 综合练习）。"""
     session_store.archive_current(user_row["id"])
     session = _new_session(body, user_row)
@@ -100,8 +106,8 @@ def start_session(body: StartBody, user_row=auth.CurrentUser) -> dict:
     }
 
 
-@router.get("/session")
-def get_session(user_row=auth.CurrentUser) -> dict:
+@router.get("/session", response_model_exclude_unset=True)
+def get_session(user_row=auth.CurrentUser) -> SessionStateOut:
     """返回当前活跃会话状态（前端刷新/恢复用）。"""
     session = session_store.load_active_session(user_row["id"])
     if session is None:
@@ -130,7 +136,7 @@ def get_session(user_row=auth.CurrentUser) -> dict:
 
 
 @router.post("/session/reset")
-def reset_session(user_row=auth.CurrentUser) -> dict:
+def reset_session(user_row=auth.CurrentUser) -> OkOut:
     """归档当前会话并回到欢迎首页。"""
     session_store.archive_current(user_row["id"])
     return {"ok": True}
@@ -142,7 +148,7 @@ def session_history(
     # 下界防 LIMIT 负数（SQLite LIMIT -1 等价无限制，会拉全表），
     # 上界防单请求拉取全量历史（每行含 report 大文本）
     limit: int = Query(50, ge=1, le=200),
-) -> dict:
+) -> HistoryListOut:
     """某用户的面试历史（复盘/继续）。"""
     return {"items": session_store.list_history(user_row["id"], limit=limit)}
 
@@ -168,7 +174,8 @@ def _get_chat_lock(user_id: int) -> asyncio.Lock:
     return lock
 
 
-@router.post("/chat")
+#: 响应为 SSE 事件流（非 JSON），故声明 response_class 让 OpenAPI 标注正确媒体类型
+@router.post("/chat", response_class=StreamingResponse)
 async def chat(body: ChatBody, user_row=auth.CurrentUser):
     """SSE 流式对话：推进当前会话（无会话时自动建辅导答疑）。"""
     # 按用户限流：与语音 WS 共用"对话消息"限流配置，防脚本刷消息烧 LLM 余额

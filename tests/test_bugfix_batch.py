@@ -1,11 +1,11 @@
-"""BUG 检测报告第一批修复的回归测试。
+"""题库 / 数据库 / LLM / 并发等边界修复的回归测试。
 
-覆盖问题编号（见 BUG 检测报告）：
-- #1  题库 tags 查询参数契约（axios 序列化修复后的后端回归）
-- #8  SQLite WAL 模式
-- #11 /api/session/history 的 limit 越界（-1 拉全表）
-- #18 LLM 重试范围收紧（4xx 不再重试）
-- #2  javaguide 乱码存量修复工具（repair_text 判定与还原）
+覆盖范围（明细见各类与用例的 docstring）：
+- 题库 tags 查询参数契约（axios 序列化修复后的后端回归）
+- SQLite WAL 模式
+- /api/session/history 的 limit 越界（-1 拉全表）
+- LLM 重试范围收紧（4xx 不再重试）
+- javaguide 乱码存量修复工具（repair_text 判定与还原）
 """
 
 import sqlite3

@@ -40,3 +40,28 @@ jobs:
         env:
           DISABLE_SCHEDULER: "1"
         run: python -m pytest
+
+  # 前端此前完全裸奔：没有 lint、没有格式检查、CI 也不构建。
+  # 改了 Vue 组件写错模板/引错文件，后端测试全绿也发现不了 —— 这个 job 就是补那一刀。
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      # 含未定义变量、拼错的全局名、Vue 模板结构性错误
+      - name: ESLint
+        run: npm run lint
+      - name: Prettier format check
+        run: npm run format:check
+      # 真正兜底的一步：模板编译不了、import 解析不到，这里会硬失败
+      - name: Build
+        run: npm run build

@@ -36,9 +36,7 @@
 
     <!-- 维度评分 -->
     <div v-if="parsed.dimensions.length" class="report-section">
-      <div class="section-title">
-        <span class="dot dot-dim"></span>维度评分
-      </div>
+      <div class="section-title"><span class="dot dot-dim"></span>维度评分</div>
       <div v-for="d in parsed.dimensions" :key="d.label" class="dim-row">
         <span class="dim-label" :title="d.label">{{ d.label }}</span>
         <div class="dim-track">
@@ -53,9 +51,7 @@
 
     <!-- 知识薄弱点 -->
     <div v-if="parsed.weakPoints.length" class="report-section">
-      <div class="section-title">
-        <span class="dot dot-weak"></span>知识薄弱点
-      </div>
+      <div class="section-title"><span class="dot dot-weak"></span>知识薄弱点</div>
       <ul class="point-list weak">
         <li v-for="(p, i) in parsed.weakPoints" :key="i">{{ p }}</li>
       </ul>
@@ -63,9 +59,7 @@
 
     <!-- 改进建议 -->
     <div v-if="parsed.improvements.length" class="report-section">
-      <div class="section-title">
-        <span class="dot dot-improve"></span>改进建议
-      </div>
+      <div class="section-title"><span class="dot dot-improve"></span>改进建议</div>
       <ul class="point-list improve">
         <li v-for="(p, i) in parsed.improvements" :key="i">{{ p }}</li>
       </ul>
@@ -119,7 +113,9 @@ const ringOffset = computed(() => {
 })
 
 function dimColor(score) {
-  return score >= 60 ? 'linear-gradient(90deg, var(--brand), var(--brand-light))' : 'linear-gradient(90deg, #d9a441, #e6bb6d)'
+  return score >= 60
+    ? 'linear-gradient(90deg, var(--brand), var(--brand-light))'
+    : 'linear-gradient(90deg, #d9a441, #e6bb6d)'
 }
 </script>
 
@@ -135,7 +131,7 @@ function dimColor(score) {
   overflow: hidden;
 }
 .report-panel::before {
-  content: "";
+  content: '';
   position: absolute;
   top: 0;
   left: 0;

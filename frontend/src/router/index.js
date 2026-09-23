@@ -2,7 +2,12 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 const routes = [
-  { path: '/login', name: 'login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('../views/LoginView.vue'),
+    meta: { public: true },
+  },
   { path: '/', name: 'chat', component: () => import('../views/ChatView.vue') },
   { path: '/voice', name: 'voice', component: () => import('../views/VoiceView.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/' },

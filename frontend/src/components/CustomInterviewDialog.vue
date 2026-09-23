@@ -12,12 +12,7 @@
           <el-input v-model="jobTitle" placeholder="如：Python 后端工程师" />
         </el-form-item>
         <el-form-item label="招聘信息（选填）">
-          <el-input
-            v-model="jd"
-            type="textarea"
-            :rows="4"
-            placeholder="粘贴岗位职责与任职要求…"
-          />
+          <el-input v-model="jd" type="textarea" :rows="4" placeholder="粘贴岗位职责与任职要求…" />
         </el-form-item>
       </el-form>
     </template>
@@ -42,11 +37,11 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '../stores/chat'
 
-const props = defineProps({
+defineProps({
   visible: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:visible', 'done'])

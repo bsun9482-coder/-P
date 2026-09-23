@@ -66,8 +66,13 @@ body,
 
 body {
   font-family:
-    "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB",
-    "Segoe UI", system-ui, -apple-system, sans-serif;
+    'PingFang SC',
+    'Microsoft YaHei',
+    'Hiragino Sans GB',
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    sans-serif;
   background: radial-gradient(1100px 560px at 50% -10%, #fdf4ea 0%, #faf7f2 55%, #f6f1e9 100%);
   background-attachment: fixed;
   color: var(--ink);
@@ -179,7 +184,9 @@ body {
   text-align: center;
   box-shadow: var(--shadow-card);
   margin-bottom: 10px;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
 }
 .qcard:hover {
   transform: translateY(-2px);
@@ -380,14 +387,14 @@ body {
   color: var(--ink);
 }
 .vphone::before {
-  content: "";
+  content: '';
   position: fixed;
   inset: 0;
   z-index: -1;
   background: radial-gradient(1200px 600px at 20% -10%, #fdf2e7 0%, #faf6ef 50%, #f6efe5 100%);
 }
 .vphone::after {
-  content: "";
+  content: '';
   position: fixed;
   inset: 0;
   z-index: -1;
@@ -675,7 +682,10 @@ body {
   bottom: 8px;
   z-index: 999;
   max-width: 48vw;
-  font: 11px/1.5 ui-monospace, Consolas, monospace;
+  font:
+    11px/1.5 ui-monospace,
+    Consolas,
+    monospace;
   color: #7a4a2e;
   background: rgba(255, 255, 255, 0.85);
   border: 1px solid var(--border);

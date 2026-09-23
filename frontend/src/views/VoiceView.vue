@@ -1,8 +1,12 @@
 <template>
   <div class="vphone">
     <div class="vtop">
-      <span class="back" @click="goBack"><el-icon><Back /></el-icon>文字版</span>
-      <div class="title"><el-icon><Microphone /></el-icon>面试官小P</div>
+      <span class="back" @click="goBack"
+        ><el-icon><Back /></el-icon>文字版</span
+      >
+      <div class="title">
+        <el-icon><Microphone /></el-icon>面试官小P
+      </div>
       <div class="vmode">{{ ui.mode }}</div>
     </div>
 
@@ -13,7 +17,11 @@
     </div>
 
     <div class="vstatusrow">
-      <div class="vstatus" :class="{ busy: ui.statusBusy, interruptible: ui.statusInterruptible }" @click="onStatusClick">
+      <div
+        class="vstatus"
+        :class="{ busy: ui.statusBusy, interruptible: ui.statusInterruptible }"
+        @click="onStatusClick"
+      >
         {{ ui.statusText }}
       </div>
       <div class="vtimer">{{ ui.timerText }}</div>
@@ -26,9 +34,7 @@
       </div>
     </div>
 
-    <div class="vwave" :class="{ on: ui.waveOn }">
-      <i /><i /><i /><i /><i />
-    </div>
+    <div class="vwave" :class="{ on: ui.waveOn }"><i /><i /><i /><i /><i /></div>
 
     <div ref="transcriptRef" class="vtranscript">
       <div v-for="(b, i) in ui.transcript" :key="i" class="vbubble" :class="b.role">
@@ -41,7 +47,12 @@
   </div>
 
   <div class="vfooter">
-    <button id="callBtn" :class="{ on: ui.active }" :title="ui.active ? '挂断' : '接通'" @click="toggle">
+    <button
+      id="callBtn"
+      :class="{ on: ui.active }"
+      :title="ui.active ? '挂断' : '接通'"
+      @click="toggle"
+    >
       <el-icon><component :is="ui.active ? 'Close' : 'PhoneFilled'" /></el-icon>
       <span class="lbl">{{ ui.active ? '挂断' : '接通' }}</span>
     </button>

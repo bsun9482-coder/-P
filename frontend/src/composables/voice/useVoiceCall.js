@@ -109,11 +109,16 @@ export function useVoiceCall() {
       ':' +
       ('0' + d.getSeconds()).slice(-2)
     const head =
-      'phase:' + V.phase +
-      ' mic:' + (V.mic ? 'Y' : 'N') +
-      ' asr:' + (V.asrReady ? 'Y' : 'N') +
-      ' lv:' + Math.round((V.micLevel || 0) * 260)
-    ui.debugLog = head + '\n' + (ui.debugLog + '\n' + ts + ' ' + msg).split('\n').slice(-16).join('\n')
+      'phase:' +
+      V.phase +
+      ' mic:' +
+      (V.mic ? 'Y' : 'N') +
+      ' asr:' +
+      (V.asrReady ? 'Y' : 'N') +
+      ' lv:' +
+      Math.round((V.micLevel || 0) * 260)
+    ui.debugLog =
+      head + '\n' + (ui.debugLog + '\n' + ts + ' ' + msg).split('\n').slice(-16).join('\n')
   }
 
   // ---------- 状态/UI ----------
@@ -164,7 +169,8 @@ export function useVoiceCall() {
       if (data.ready) {
         setMode('定制面试')
         const hint = ui.transcript.find((b) => b.role === 'hint')
-        if (hint) hint.text = `已为你准备好「${data.job_title || '自定义岗位'}」定制面试，接通后小P会直接开始。`
+        if (hint)
+          hint.text = `已为你准备好「${data.job_title || '自定义岗位'}」定制面试，接通后小P会直接开始。`
       }
     } catch (e) {
       /* 忽略 */
@@ -505,7 +511,17 @@ export function useVoiceCall() {
   function pickVoice() {
     const vs = window.speechSynthesis.getVoices()
     if (!vs || !vs.length) return null
-    const prefs = ['Xiaoxiao', 'Xiaoyi', 'YunxiNeural', 'Xiaoyan', 'Huihui', 'Yaoyao', 'XiaoYun', 'Lili', 'zh-CN']
+    const prefs = [
+      'Xiaoxiao',
+      'Xiaoyi',
+      'YunxiNeural',
+      'Xiaoyan',
+      'Huihui',
+      'Yaoyao',
+      'XiaoYun',
+      'Lili',
+      'zh-CN',
+    ]
     for (const p of prefs) {
       for (const v of vs) {
         if ((v.name || '').indexOf(p) >= 0) return v
@@ -719,8 +735,7 @@ export function useVoiceCall() {
       /* 忽略 */
     }
     const proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://'
-    const url =
-      proto + window.location.host + '/ws/voice?ticket=' + encodeURIComponent(ticket)
+    const url = proto + window.location.host + '/ws/voice?ticket=' + encodeURIComponent(ticket)
     let ws
     try {
       ws = new WebSocket(url)

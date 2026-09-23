@@ -1,0 +1,6 @@
+# 构建产物与依赖：不是手写代码，不该参与格式检查
+dist/
+node_modules/
+
+# 锁文件由 npm 生成（Windows 下 npm 会写 CRLF），格式化它只会制造无意义的 diff
+package-lock.json

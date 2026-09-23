@@ -58,12 +58,7 @@
           :rows="4"
           placeholder="每行一题，至少包含「题干」；可选列：答案、标签（逗号分隔）、难度（简单/中等/困难）、公司。支持表头或无表头按列顺序。"
         />
-        <el-button
-          type="primary"
-          class="import-btn"
-          :loading="importing"
-          @click="submitImport"
-        >
+        <el-button type="primary" class="import-btn" :loading="importing" @click="submitImport">
           导入
         </el-button>
       </el-collapse-item>
@@ -71,22 +66,63 @@
 
     <!-- 筛选：变更即自动应用；来源/公司无数据时隐藏对应筛选项，避免出现"无数据"死控件 -->
     <div class="filters">
-      <el-select v-if="meta.sources.length" v-model="filters.source" placeholder="来源" clearable class="f-item" @change="load()">
+      <el-select
+        v-if="meta.sources.length"
+        v-model="filters.source"
+        placeholder="来源"
+        clearable
+        class="f-item"
+        @change="load()"
+      >
         <el-option v-for="s in meta.sources" :key="s.key" :label="s.label" :value="s.key" />
       </el-select>
-      <el-select v-model="filters.difficulty" placeholder="难度" clearable class="f-item" @change="load()">
+      <el-select
+        v-model="filters.difficulty"
+        placeholder="难度"
+        clearable
+        class="f-item"
+        @change="load()"
+      >
         <el-option label="简单" value="简单" />
         <el-option label="中等" value="中等" />
         <el-option label="困难" value="困难" />
       </el-select>
-      <el-select v-if="meta.companies.length" v-model="filters.company" placeholder="公司" clearable filterable class="f-item" @change="load()">
+      <el-select
+        v-if="meta.companies.length"
+        v-model="filters.company"
+        placeholder="公司"
+        clearable
+        filterable
+        class="f-item"
+        @change="load()"
+      >
         <el-option v-for="c in meta.companies" :key="c" :label="c" :value="c" />
       </el-select>
-      <el-input v-model="filters.keyword" placeholder="关键词，如 Redis / 索引" clearable class="f-item" @keyup.enter="load()" @clear="load()" />
+      <el-input
+        v-model="filters.keyword"
+        placeholder="关键词，如 Redis / 索引"
+        clearable
+        class="f-item"
+        @keyup.enter="load()"
+        @clear="load()"
+      />
     </div>
     <div class="tags-row">
-      <el-select v-model="filters.tags" multiple collapse-tags collapse-tags-tooltip placeholder="标签筛选" class="tags-select" @change="load()">
-        <el-option v-for="t in meta.tags" :key="t.name" :label="`${t.name} (${t.count})`" :value="t.name" />
+      <el-select
+        v-model="filters.tags"
+        multiple
+        collapse-tags
+        collapse-tags-tooltip
+        placeholder="标签筛选"
+        class="tags-select"
+        @change="load()"
+      >
+        <el-option
+          v-for="t in meta.tags"
+          :key="t.name"
+          :label="`${t.name} (${t.count})`"
+          :value="t.name"
+        />
       </el-select>
       <el-checkbox v-model="filters.favoriteOnly" label="⭐ 仅看收藏" @change="load()" />
       <el-button size="small" :loading="loading" @click="load()">查询</el-button>
@@ -95,7 +131,11 @@
     <!-- 题目列表 + 已选 -->
     <div class="bank-body">
       <div class="qlist">
-        <el-empty v-if="loaded && !error && !rows.length" description="没有找到匹配的题，换个关键词或筛选条件试试～" :image-size="80" />
+        <el-empty
+          v-if="loaded && !error && !rows.length"
+          description="没有找到匹配的题，换个关键词或筛选条件试试～"
+          :image-size="80"
+        />
         <div v-else-if="error" class="bank-error">
           <p>{{ error }}</p>
           <el-button size="small" type="primary" @click="load()">重试</el-button>
@@ -120,7 +160,12 @@
             >
               {{ isSelected(q.id) ? '✓ 已加入' : '加入面试' }}
             </el-button>
-            <el-button size="small" :type="isFav(q.id) ? 'warning' : 'default'" class="fav-btn" @click="toggleFav(q)">
+            <el-button
+              size="small"
+              :type="isFav(q.id) ? 'warning' : 'default'"
+              class="fav-btn"
+              @click="toggleFav(q)"
+            >
               {{ isFav(q.id) ? '★ 已收藏' : '☆ 收藏' }}
             </el-button>
           </div>
@@ -137,7 +182,12 @@
         <el-button
           type="primary"
           class="sel-start"
-          @click="emit('start', selected.map((s) => s.title))"
+          @click="
+            emit(
+              'start',
+              selected.map((s) => s.title),
+            )
+          "
         >
           🚀 开始综合面试（{{ selected.length }} 题）
         </el-button>
@@ -279,7 +329,10 @@ async function submitAdd() {
   await bankApi.add({
     title: form.title.trim(),
     answer: form.answer,
-    tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
+    tags: form.tags
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean),
     difficulty: form.difficulty,
     company: form.company.trim(),
   })
@@ -297,7 +350,9 @@ async function submitImport() {
   importing.value = true
   try {
     const stats = await bankApi.importCsv(csvText.value)
-    ElMessage.success(`导入成功 ${stats.new} 条${stats.skipped ? `，跳过重复 ${stats.skipped} 条` : ''}`)
+    ElMessage.success(
+      `导入成功 ${stats.new} 条${stats.skipped ? `，跳过重复 ${stats.skipped} 条` : ''}`,
+    )
     csvText.value = ''
     loadMeta()
     load()

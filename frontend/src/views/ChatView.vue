@@ -62,7 +62,9 @@
         <div v-for="h in history" :key="h.id" class="rev-row">
           <span>{{ h.job_title || (h.mode === 'mock' ? '模拟面试' : '辅导答疑') }}</span>
           <span class="rev-meta">{{ fmtDate(h.started_at) }}</span>
-          <span v-if="h.score != null" class="rev-score" :class="scoreTone(h.score)">{{ h.score }}</span>
+          <span v-if="h.score != null" class="rev-score" :class="scoreTone(h.score)">{{
+            h.score
+          }}</span>
         </div>
 
         <div class="side-note">数据按账号隔离 · 收藏/历史云端同步</div>
@@ -78,13 +80,7 @@
           <div v-if="chat.active" class="mode-chip">
             {{ chat.finished ? '已结束 · 可开始新一轮' : `当前模式：${modeLabel}` }}
           </div>
-          <el-button
-            v-if="chat.active"
-            size="small"
-            text
-            type="primary"
-            @click="backHome"
-          >
+          <el-button v-if="chat.active" size="small" text type="primary" @click="backHome">
             <el-icon><HomeFilled /></el-icon>
             返回首页
           </el-button>
@@ -142,14 +138,13 @@
     </div>
 
     <!-- 语音入口 -->
-    <a class="vc-float" title="打开语音通话" @click.prevent="goVoice"><el-icon><PhoneFilled /></el-icon></a>
+    <a class="vc-float" title="打开语音通话" @click.prevent="goVoice"
+      ><el-icon><PhoneFilled /></el-icon
+    ></a>
 
     <!-- 对话框 -->
     <QuestionBankDialog v-model:visible="bankVisible" @start="startComprehensive" />
-    <CustomInterviewDialog
-      v-model:visible="customVisible"
-      @done="onCustomDone"
-    />
+    <CustomInterviewDialog v-model:visible="customVisible" @done="onCustomDone" />
 
     <!-- 个人资料 -->
     <el-dialog v-model="profileVisible" title="个人资料" width="min(420px, 92vw)">
@@ -206,9 +201,7 @@ const persona = computed({
   },
 })
 
-const modeLabel = computed(() =>
-  chat.mode === 'mock' ? '模拟面试' : '辅导答疑',
-)
+const modeLabel = computed(() => (chat.mode === 'mock' ? '模拟面试' : '辅导答疑'))
 
 const stats = ref([])
 const history = ref([])
@@ -257,7 +250,10 @@ watch(
   () => chat.history.length,
   () => scrollBottom(),
 )
-watch(() => chat.sending, (s) => s && scrollBottom())
+watch(
+  () => chat.sending,
+  (s) => s && scrollBottom(),
+)
 
 /** 仅隐藏真正的报告消息（历史中最后一条内容与 chat.report 一致的助手消息），
  *  避免误藏同内容的早期回答；报告气泡由 ReportPanel 替代展示。 */

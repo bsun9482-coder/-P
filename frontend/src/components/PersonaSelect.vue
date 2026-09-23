@@ -6,12 +6,7 @@
     size="default"
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <el-option
-      v-for="(desc, name) in PERSONAS"
-      :key="name"
-      :label="name"
-      :value="name"
-    >
+    <el-option v-for="(desc, name) in PERSONAS" :key="name" :label="name" :value="name">
       <div class="persona-opt">
         <div class="persona-name">{{ name }}</div>
         <div class="persona-desc">{{ desc }}</div>
@@ -22,7 +17,7 @@
 
 <script setup>
 // 面试官人格选择（与后端 prompts.PERSONAS 保持一致）
-const props = defineProps({
+defineProps({
   modelValue: { type: String, default: '' },
   placeholder: { type: String, default: '面试官风格' },
 })

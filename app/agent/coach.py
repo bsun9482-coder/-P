@@ -5,7 +5,7 @@
 - 辅导答疑：标准参考回答 + 加分点 + 变式题，RAG 检索本地题库（FTS5）；
 - 上下文管理：超出阈值自动把早期对话压缩成摘要，控制 token 成本；
 - 选题：SQL 层随机（带标签/难度/排除已出题），避免全表捞回内存过滤；
-- 支持流式输出（handle_stream）与同步输出（handle）。
+- 支持流式输出（handle_stream）与同步输出（handle）；同步入口只是排空流式实现，状态机不重复实现。
 """
 
 import copy
@@ -316,17 +316,22 @@ class InterviewSession:
     # ------------------------------------------------------------ 对外主入口
 
     def handle(self, user_text: str) -> str:
-        """同步入口：接收用户输入，推进状态，返回完整 AI 回复。
+        """同步入口：排空流式实现，返回完整 AI 回复。
 
-        失败时回滚全部状态，与流式入口的"快照→提交→异常回滚"语义一致，
-        避免同步调用方在 LLM 异常后留下"已追加但 turn 未推进"的中间态。
+        状态机只有 handle_stream 一份实现，本方法只做「驱动 + 取回最终文本」，
+        因此同步与流式的状态推进、消息历史、异常回滚语义天然一致，
+        不会像双实现时期那样各自漂移（实测曾出现 13 处分叉）。
+        外层快照覆盖流式内部未回滚的分支（如 _handle_coach_stream），
+        保证同步调用方在 LLM 异常后不留"已追加但 turn 未推进"的中间态。
         """
-        user_text = _sanitize_input(user_text)
         snapshot = self._state_snapshot()
         try:
-            if self.mode == "coach":
-                return self._handle_coach(user_text)
-            return self._handle_mock(user_text)
+            gen = self.handle_stream(user_text)
+            while True:
+                try:
+                    next(gen)
+                except StopIteration as stop:
+                    return stop.value
         except Exception:
             self._restore_snapshot(snapshot)
             raise
@@ -423,14 +428,6 @@ class InterviewSession:
         block += "\n请结合以上题库参考内容，按辅导答疑模板（标准参考回答 + 加分点 + 变式题）回答用户。若题库内容与问题无关可忽略。\n"
         return block
 
-    def _handle_coach(self, user_text: str) -> str:
-        relevant = db.fts_search(keyword=user_text, limit=5)
-        rag_block = self._build_rag_block(relevant)
-        self.messages.append({"role": "user", "content": rag_block + user_text})
-        reply = self._chat()
-        self.messages.append({"role": "assistant", "content": reply})
-        return reply
-
     def _handle_coach_stream(self, user_text: str):
         relevant = db.fts_search(keyword=user_text, limit=5)
         rag_block = self._build_rag_block(relevant)
@@ -447,66 +444,6 @@ class InterviewSession:
         return msg["content"]
 
     # ------------------------------------------------------------ 模拟面试
-
-    def _handle_mock(self, user_text: str) -> str:
-        # 1) 开场：用户自我介绍后 → 出第一题
-        if self.turn == "greeting":
-            self.turn = "answering"
-            # 自我介绍进 LLM 上下文：否则"项目深挖"阶段无项目信息可挖
-            self.messages.append({"role": "user", "content": f"（自我介绍）{user_text}"})
-            return self._ask_next_question()
-
-        # 2) 用户在答题 → 点评 + 追问
-        if self.turn == "answering":
-            if self.current_q is None:
-                return self._ask_next_question()  # 题库为空兜底
-            self.answers.append(
-                {
-                    "stage": self._stage_name(),
-                    "title": self.current_q["title"],
-                    "answer": user_text,
-                }
-            )
-            self.messages.append(
-                {"role": "user", "content": f"（第{self.stage_idx + 1}题我的回答）{user_text}"}
-            )
-            # 点评时同步注入本题参考答案（缺答案的 mianshiya 题先同步补一次）
-            reference = _ensure_reference_answer(self.current_q)
-            content = (
-                "用户刚回答了当前问题。请：1) 点评（好的方面+不足，简洁）；2) 追问 1 个深挖细节。"
-            )
-            if reference:
-                content += f"\n\n【本题参考答案（仅供点评参考，勿照念）】\n{reference[:800]}"
-            self.messages.append({"role": "user", "content": content})
-            reply = self._chat()
-            self.messages.append({"role": "assistant", "content": reply})
-            self.followup_count = 1
-            self.turn = "followup"
-            return reply
-
-        # 3) 用户在答追问 → 进入下一题 或 结束出报告
-        if self.turn == "followup":
-            self.messages.append({"role": "user", "content": f"（追问的回答）{user_text}"})
-            if self.followup_count < MAX_FOLLOWUPS and _is_shallow_answer(user_text):
-                self.followup_count += 1
-                self.messages.append(
-                    {
-                        "role": "user",
-                        "content": "用户对追问的回答仍然比较浅。请简短点评这次回答，"
-                        "再追问 1 个更具体的问题（引用用户原话）。",
-                    }
-                )
-                reply = self._chat()
-                self.messages.append({"role": "assistant", "content": reply})
-                return reply
-            self.followup_count = 0
-            self.stage_idx += 1
-            if self.stage_idx >= self._total_questions():
-                return self._finish_report()
-            return self._ask_next_question()
-
-        # 4) 报告已出
-        return FINISHED_HINT
 
     def _handle_mock_stream(self, user_text: str):
         if self.turn == "greeting":
@@ -606,42 +543,6 @@ class InterviewSession:
 
     # ------------------------------------------------------------ 内部动作
 
-    def _ask_next_question(self) -> str:
-        if self.custom_questions and self.stage_idx < len(self.custom_questions):
-            stage_name = f"定制题 {self.stage_idx + 1}"
-            diff = "未知"
-            q = {
-                "id": -(self.stage_idx + 1),
-                "title": self.custom_questions[self.stage_idx],
-                "tags": "定制",
-                "difficulty": diff,
-                "source": "定制",
-            }
-        else:
-            stage_name, stage_tags, source, difficulty = prompts.STAGES[self.stage_idx]
-            q = _pick_question(stage_tags, source, difficulty, self.asked_ids)
-            if q is None:
-                # 与流式入口一致：空题库提示写入 messages，避免历史误记用户原文
-                self.messages.append({"role": "assistant", "content": EMPTY_BANK_HINT})
-                return EMPTY_BANK_HINT
-            diff = q["difficulty"] or "未知"
-        self.asked_ids.add(q["id"])
-        self.current_q = q
-        self.messages.append(
-            {
-                "role": "user",
-                "content": (
-                    f"【出题】第{self.stage_idx + 1}题，阶段「{stage_name}」，"
-                    f"难度「{diff}」。题目：{q['title']}\n"
-                    f"请以面试官口吻把这道题自然地抛给用户（可稍作引导，不要直接给答案）。"
-                ),
-            }
-        )
-        reply = self._chat()
-        self.messages.append({"role": "assistant", "content": reply})
-        self.turn = "answering"
-        return reply
-
     def _ask_next_question_stream(self):
         if self.custom_questions and self.stage_idx < len(self.custom_questions):
             stage_name = f"定制题 {self.stage_idx + 1}"
@@ -700,30 +601,6 @@ class InterviewSession:
             raise
         msg["content"] = msg["content"].strip() or NO_REPLY_FALLBACK
         return msg["content"]
-
-    def _finish_report(self) -> str:
-        self.turn = "report"
-        self.finished = True
-        answers_txt = "\n".join(
-            f"- [{a['stage']}] {a['title']}\n  回答：{a['answer'][:300]}" for a in self.answers
-        )
-        self.messages.append(
-            {
-                "role": "user",
-                "content": (
-                    "全部题目已结束。请基于以下用户回答，输出【总结报告】：\n"
-                    "1) 第一行输出【总分】NN/100（NN 为 0-100 整数评分，按 "
-                    f"{prompts.SCORE_WEIGHTS} 加权），随后给出分项分；\n"
-                    "2) 知识薄弱点（具体到知识点，每行以 - 开头）；\n"
-                    "3) 改进建议清单（可执行、分优先级）。\n\n"
-                    f"用户全部回答：\n{answers_txt}"
-                ),
-            }
-        )
-        reply = self._chat(max_tokens=3000, model=config.REPORT_MODEL or None)
-        self.messages.append({"role": "assistant", "content": reply})
-        self._persist_report(reply)
-        return reply
 
     def _finish_report_stream(self):
         # 状态提交与回滚：报告流失败（LLM 重试耗尽是常态事件）若不回滚，

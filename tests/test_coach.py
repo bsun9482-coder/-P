@@ -20,6 +20,15 @@ FAKE_QUESTION = {
 LONG_ANSWER = "（我的详细回答）" * 30  # 超过 SHALLOW_MIN_CHARS，且不含模糊词
 
 
+def _stream_once(*chunks: str):
+    """构造 chat_stream 的 side_effect：每次调用返回新的增量迭代器。
+
+    同步入口 handle() 现在排空 handle_stream() 实现，因此测试要桩住的是
+    chat_stream；迭代器只能消费一次，多轮调用必须用 side_effect 每次新建。
+    """
+    return lambda *_a, **_k: iter(chunks)
+
+
 def test_parse_report_dimensions_scoped_to_score_section():
     """薄弱点/改进清单里以数字结尾的条目不能被误判成维度分。"""
     report = (
@@ -72,6 +81,7 @@ class CoachFlowTests(unittest.TestCase):
         with (
             mock.patch("app.agent.coach._pick_question", return_value=FAKE_QUESTION),
             mock.patch("app.agent.coach.llm.chat", return_value="小P回复"),
+            mock.patch("app.agent.coach.llm.chat_stream", side_effect=_stream_once("小P回复")),
         ):
             s.handle("自我介绍：我是张三，3年后端")
             self.assertEqual(s.turn, "answering")
@@ -95,7 +105,10 @@ class CoachFlowTests(unittest.TestCase):
         s = InterviewSession("coach")
         with (
             mock.patch("app.agent.coach.db.fts_search", return_value=[]),
-            mock.patch("app.agent.coach.llm.chat", return_value="标准参考回答…"),
+            mock.patch(
+                "app.agent.coach.llm.chat_stream",
+                side_effect=_stream_once("标准参考回答…"),
+            ),
         ):
             reply = s.handle("Redis 缓存穿透怎么答")
         self.assertIn("标准参考回答", reply)
@@ -248,7 +261,7 @@ class CoachFlowTests(unittest.TestCase):
         long_text = "x" * 5000
         with (
             mock.patch("app.agent.coach.db.fts_search", return_value=[]),
-            mock.patch("app.agent.coach.llm.chat", return_value="ok"),
+            mock.patch("app.agent.coach.llm.chat_stream", side_effect=_stream_once("ok")),
         ):
             s.handle(long_text)
         self.assertLessEqual(len(s.messages[-2]["content"]), 4000)
@@ -258,7 +271,10 @@ class CoachFlowTests(unittest.TestCase):
         s = InterviewSession(
             "mock", questions=["Q1", "Q2"], job_title="高级 Python 后端", jd="精通 FastAPI"
         )
-        with mock.patch("app.agent.coach.llm.chat", return_value="小P回复"):
+        with (
+            mock.patch("app.agent.coach.llm.chat", return_value="小P回复"),
+            mock.patch("app.agent.coach.llm.chat_stream", side_effect=_stream_once("小P回复")),
+        ):
             s.handle("自我介绍：我是张三")
             self.assertEqual(s.current_q["title"], "Q1")
             self.assertEqual(s._stage_name(), "定制题 1")
@@ -274,7 +290,10 @@ class CoachFlowTests(unittest.TestCase):
     def test_shallow_followup_triggers_second_followup(self):
         """追问回答过短/含糊：追加一次更具体的追问，答完才进入下一题。"""
         s = InterviewSession("mock", questions=["Q1", "Q2"])
-        with mock.patch("app.agent.coach.llm.chat", return_value="小P回复"):
+        with (
+            mock.patch("app.agent.coach.llm.chat", return_value="小P回复"),
+            mock.patch("app.agent.coach.llm.chat_stream", side_effect=_stream_once("小P回复")),
+        ):
             s.handle("自我介绍：我是张三，3年后端")
             s.handle(LONG_ANSWER)  # 第一题回答
             self.assertEqual(s.turn, "followup")
@@ -286,7 +305,10 @@ class CoachFlowTests(unittest.TestCase):
     def test_deep_followup_advances_to_next_question(self):
         """追问回答足够详细：进入下一题（不追加追问）。"""
         s = InterviewSession("mock", questions=["Q1", "Q2"])
-        with mock.patch("app.agent.coach.llm.chat", return_value="小P回复"):
+        with (
+            mock.patch("app.agent.coach.llm.chat", return_value="小P回复"),
+            mock.patch("app.agent.coach.llm.chat_stream", side_effect=_stream_once("小P回复")),
+        ):
             s.handle("自我介绍：我是张三，3年后端")
             s.handle(LONG_ANSWER)
             s.handle(LONG_ANSWER)  # 追问回答足够详细
@@ -310,7 +332,13 @@ class CoachFlowTests(unittest.TestCase):
                 return "【总分】85/100\n知识薄弱点：\n- Redis 缓存穿透\n- 索引失效\n改进建议：\n- 多练习"
             return "小P回复"
 
-        with mock.patch("app.agent.coach.llm.chat", side_effect=fake_chat):
+        with (
+            mock.patch("app.agent.coach.llm.chat", side_effect=fake_chat),
+            mock.patch(
+                "app.agent.coach.llm.chat_stream",
+                side_effect=lambda messages, **kw: iter([fake_chat(messages, **kw)]),
+            ),
+        ):
             s.handle("自我介绍")
             s.handle("我的回答")
             s.handle(LONG_ANSWER)  # 深入回答后结束并出报告
@@ -329,15 +357,15 @@ class CoachFlowTests(unittest.TestCase):
         s = InterviewSession("mock", questions=["Q1"])
         report_kwargs: dict = {}
 
-        def fake_chat(messages, **kwargs):
+        def fake_stream(messages, **kwargs):
             if messages[-1]["role"] == "user" and "总结报告" in messages[-1]["content"]:
                 report_kwargs.update(kwargs)
-                return "【总分】80/100\n知识薄弱点：\n- 测试\n改进建议：\n- 复习"
-            return "小P回复"
+                return iter(["【总分】80/100\n知识薄弱点：\n- 测试\n改进建议：\n- 复习"])
+            return iter(["小P回复"])
 
         with (
             mock.patch("app.agent.coach.config.REPORT_MODEL", "deepseek-reasoner"),
-            mock.patch("app.agent.coach.llm.chat", side_effect=fake_chat),
+            mock.patch("app.agent.coach.llm.chat_stream", side_effect=fake_stream),
         ):
             s.handle("自我介绍")
             s.handle("我的回答")
@@ -382,7 +410,7 @@ class ReferenceAnswerTests(unittest.TestCase):
         s = InterviewSession("mock")
         with (
             mock.patch("app.agent.coach._pick_question", return_value=q),
-            mock.patch("app.agent.coach.llm.chat", return_value="点评回复"),
+            mock.patch("app.agent.coach.llm.chat_stream", side_effect=_stream_once("点评回复")),
         ):
             s.handle("自我介绍：我是张三，3年后端")
             s.handle("我的回答")
@@ -399,12 +427,115 @@ class ReferenceAnswerTests(unittest.TestCase):
         s = InterviewSession("mock")
         with (
             mock.patch("app.agent.coach._pick_question", return_value=q),
-            mock.patch("app.agent.coach.llm.chat", return_value="点评回复"),
+            mock.patch("app.agent.coach.llm.chat_stream", side_effect=_stream_once("点评回复")),
             mock.patch("app.crawler.mianshiya.MianShiYaAdapter") as M,
         ):
             s.handle("自我介绍：我是张三")
             s.handle("我的回答")
         M.assert_not_called()
+
+
+class SyncStreamParityTests(unittest.TestCase):
+    """同步入口 handle() 排空流式实现 handle_stream()：两条路径必须逐字段一致。
+
+    历史背景：二者曾是两套独立实现，实测漂移到 13 处分叉（报告已出分支 12 处、
+    coach 空回复 1 处）。本类守住"单一状态机"这条不变量，防止再次分叉。
+    """
+
+    def setUp(self):
+        self._tmp_dir = tempfile.mkdtemp()
+        self._orig_db_path = config.DB_PATH
+        config.DB_PATH = Path(self._tmp_dir) / "test.db"
+        db.init_db()
+
+    def tearDown(self):
+        config.DB_PATH = self._orig_db_path
+
+    @staticmethod
+    def _state(s):
+        return {
+            "turn": s.turn,
+            "stage_idx": s.stage_idx,
+            "followup_count": s.followup_count,
+            "finished": s.finished,
+            "answers": s.answers,
+            "messages": s.messages,
+        }
+
+    def test_sync_and_stream_produce_identical_state(self):
+        """同一串输入走两条入口：最终状态与返回文本必须完全一致（含报告后发言）。"""
+        inputs = [
+            "自我介绍：我是张三，3年后端",
+            LONG_ANSWER,  # 第 1 题回答 → 点评+追问
+            LONG_ANSWER,  # 追问回答够深 → 第 2 题
+            LONG_ANSWER,  # 第 2 题回答 → 点评+追问
+            LONG_ANSWER,  # 追问回答够深 → 出报告
+            "赛后补充",  # 报告已出 → 走 hint 分支
+        ]
+
+        def fake_stream(messages, **kwargs):
+            return iter(["小P", "回复"])
+
+        def run(use_stream):
+            s = InterviewSession("mock", questions=["Q1", "Q2"])
+            last = None
+            for text in inputs:
+                if use_stream:
+                    gen = s.handle_stream(text)
+                    while True:
+                        try:
+                            next(gen)
+                        except StopIteration as stop:
+                            last = stop.value
+                            break
+                else:
+                    last = s.handle(text)
+            return self._state(s), last
+
+        with (
+            mock.patch("app.agent.coach._pick_question", return_value=FAKE_QUESTION),
+            mock.patch("app.agent.coach.llm.chat", return_value="小P回复"),
+            mock.patch("app.agent.coach.llm.chat_stream", side_effect=fake_stream),
+        ):
+            sync_state, sync_last = run(False)
+            stream_state, stream_last = run(True)
+
+        self.assertEqual(sync_state, stream_state, "两条入口的会话状态应完全一致")
+        self.assertEqual(sync_last, stream_last, "两条入口的返回文本应完全一致")
+        self.assertTrue(sync_state["finished"], "用例应跑到出报告，覆盖 hint 分支")
+
+    def test_sync_entry_falls_back_on_empty_reply(self):
+        """coach 模式 LLM 返回空串：同步入口也要写 NO_REPLY_FALLBACK，不留空消息。"""
+        s = InterviewSession("coach")
+        with (
+            mock.patch("app.agent.coach.db.fts_search", return_value=[]),
+            mock.patch("app.agent.coach.llm.chat_stream", side_effect=lambda *a, **k: iter([])),
+        ):
+            reply = s.handle("Redis 缓存穿透怎么答")
+        self.assertEqual(reply, coach.NO_REPLY_FALLBACK)
+        self.assertEqual(s.messages[-1]["content"], coach.NO_REPLY_FALLBACK)
+
+    def test_sync_entry_appends_finished_hint_after_report(self):
+        """报告已出后再发言：同步入口与流式一致，把 hint 追加进 messages。
+
+        session.py 用 messages[-1] 取 done.report；若此处退回"不追加"的老行为，
+        报告会被这句话覆盖成 hint。
+        """
+        s = InterviewSession("mock", questions=["Q1"])
+        with (
+            mock.patch("app.agent.coach._pick_question", return_value=FAKE_QUESTION),
+            mock.patch("app.agent.coach.llm.chat", return_value="小P回复"),
+            mock.patch(
+                "app.agent.coach.llm.chat_stream", side_effect=lambda *a, **k: iter(["小P回复"])
+            ),
+        ):
+            s.handle("自我介绍：我是张三，3年后端")
+            s.handle(LONG_ANSWER)
+            s.handle(LONG_ANSWER)  # 追问回答够深 → 出报告
+            self.assertTrue(s.finished)
+            reply = s.handle("赛后补充")
+        self.assertEqual(reply, coach.FINISHED_HINT)
+        self.assertEqual(s.messages[-1]["content"], coach.FINISHED_HINT)
 
 
 if __name__ == "__main__":

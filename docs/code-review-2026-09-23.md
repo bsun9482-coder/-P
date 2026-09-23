@@ -58,6 +58,11 @@
 
 ### 问题 1：`app/core/db.py` 是个 1328 行的"万能抽屉"
 
+> **已处理**：已按领域拆成 `app/core/db/` 包（conn / schema / migrate / fts / questions /
+> cleaning / sessions / favorites / users / custom），最大单文件降到约 300 行；
+> `__init__.py` 作为门面转出全部原有名字，**对外 API 未变**，19 个调用点与测试里的
+> `mock.patch("app.core.db.xxx")` 一行未改。下文描述的是拆分前的状态，保留作记录。
+
 **占整个后端代码量的五分之一，一个文件塞了 6 个互不相干的领域：**
 
 | 装在这个文件里的东西 | 大概占比 |
@@ -250,6 +255,11 @@ session.py    POST /chat            ✗
 ---
 
 ### 问题 9：建表语句看不出表的真面目
+
+> **已处理**：`app/core/db/schema.py` 的建表语句已与迁移后的真实结构逐列对齐
+> （`questions` 15 列、`sessions` 14 列），并新增 `tests/test_schema_sync.py` 守卫这条不变量。
+> 注意一个反直觉点：建在「迁移新增列」上的索引**不能**写进建表语句 ——
+> `init_db()` 先执行建表语句再跑迁移，索引写在 DDL 里会让还没这些列的老库直接启动失败。
 
 `app/core/db.py` 顶部有一段 `SCHEMA` 建表语句，看着挺全。
 但对比数据库里的实际结构：

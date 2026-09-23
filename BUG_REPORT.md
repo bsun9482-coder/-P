@@ -333,7 +333,7 @@
 - **根因**：章节激活判据未限定标题样式（此前只修了"激活后"被误判截断的问题，未修"激活前"被误激活的问题）。
 
 ### BUG-31 【Low】`_migrate` 非事务执行：v7 favorites 重建（DROP+RENAME）崩溃中间态不可恢复，收藏数据丢失
-- **模块**：数据库迁移（`app/core/db.py:220-225,287-306`）
+- **模块**：数据库迁移（`app/core/db/migrate.py` 的 `_migrate`，v7 段）
 - **复现**：旧库升级，`executescript` 内 `DROP TABLE favorites` 与 `RENAME` 之间崩溃 → 重启后 `CREATE TABLE IF NOT EXISTS` 重建空表、v7 检查 `user_id` 已在 → 跳过 → 旧收藏遗留在孤儿表 `favorites_new` 永不使用。
 - **根因**：Python `executescript` 隐式提交外层事务，SQLite 对 DDL 自动提交，DROP/RENAME 无事务保护。
 
@@ -358,7 +358,7 @@
 - **根因**：同步入口未实现流式入口已有的"快照→提交→异常回滚"模式（当前生产走 `handle_stream`，仅影响测试与复用者）。
 
 ### BUG-36 【Low】WS 一次性票据消费存在 TOCTOU 竞态，"同事务单次消费"承诺未真正实现
-- **模块**：认证（`app/core/db.py:1131-1146` `consume_ws_ticket`；调用面 `stores/auth.py:79-89`、`voice_ws.py:341`）
+- **模块**：认证（`app/core/db/users.py` 的 `consume_ws_ticket`，现为 `DELETE ... RETURNING` 原子消费；调用面 `stores/auth.py:79-89`、`voice_ws.py:341`）
 - **复现**：同一票据在 60s TTL 内并发发起两个 WS 连接 → 两连接 SELECT 都读到行、后到者 DELETE 落空但不报错 → 两连接均认证成功。
 - **预期 vs 实际**：预期恰有一个成功、另一个返回 None；实际票据被消费两次（实际危害被互踢 4409 兜底：同 user 最终仍单连接；且窃票者本可在 TTL 内抢先，增量攻击面小）。
 - **根因**：`get_conn()` 未设 `isolation_level`，Python sqlite3 legacy 模式 SELECT 自动提交读、不在事务内；缺乏 `BEGIN IMMEDIATE`/`DELETE ... RETURNING` 的原子消费。现有测试仅覆盖串行消费。
